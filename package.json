@@ -1,0 +1,60 @@
+{
+  "name": "@dsh-ditto/plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Ditto M0: reviewed, deterministic copy-and-classify batches",
+  "bin": {
+    "dsh-ditto": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./dsh": "./dist/dsh/index.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "demo": "tsx src/cli.ts demo",
+    "smoke:dsh": "tsx scripts/dsh-smoke.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1"
+  },
+  "overrides": {
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-brand": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-code-runtime": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-invariants": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-scope": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-session": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-session-projection": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-timeout": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-user-approval": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-util-crypto": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-util-values": "0.1.5-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

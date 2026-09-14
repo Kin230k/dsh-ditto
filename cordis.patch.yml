@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-ditto
+      name: '@dsh-ditto/plugin/dsh'
+      config:
+        stateRoot: .dsh-ditto
