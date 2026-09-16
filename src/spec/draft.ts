@@ -77,7 +77,7 @@ function cited(value: unknown, known: Set<string>, name: string): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} 不正確`)
   const fact = value as CitedText
   if (typeof fact.text !== 'string' || fact.text.trim().length === 0 || fact.text.length > MAX_TEXT || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(fact.text)) throw new Error(`${name} 文字不正確`)
-  if (!Array.isArray(fact.citations) || fact.citations.length < 1 || fact.citations.length > 12 || fact.citations.some(id => typeof id !== 'string' || !known.has(id)) || new Set(fact.citations).size !== fact.citations.length) throw new Error(`${name} 必須引用目前來源的證據`) 
+  if (!Array.isArray(fact.citations) || fact.citations.length < 1 || fact.citations.length > 12 || fact.citations.some(id => typeof id !== 'string' || !known.has(id)) || new Set(fact.citations).size !== fact.citations.length) throw new Error(`${name} 必須引用目前來源的證據`)
   if (Object.keys(fact).some(key => key !== 'text' && key !== 'citations' && key !== 'kind' && key !== 'name' && key !== 'parameters')) throw new Error(`${name} 包含不支援欄位`)
 }
 function citedList(value: unknown, known: Set<string>, name: string): void { if (value === undefined) return; if (!Array.isArray(value) || value.length > MAX_LIST) throw new Error(`${name} 不正確`); for (const fact of value) cited(fact, known, name) }
