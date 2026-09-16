@@ -14,6 +14,14 @@ import {
   savePlan,
   saveRecipe,
   type Plan,
+  applySpecBatch,
+  approveSpecSamples,
+  createSpecBatch,
+  loadSpecBatch,
+  reviseSpecBatch,
+  saveSpecBatch,
+  submitSpecDraft,
+  type SpecBatch,
 } from '../core/index.js'
 
 /**
@@ -29,6 +37,8 @@ export interface DshDittoConfig {
   maxItems?: number
   /** Maximum item records returned by one native tool response (1–100). */
   resultItems?: number
+  /** Maximum source-evidence chunks returned by one spec-module request (1–40). */
+  evidenceItems?: number
 }
 
 interface ResolvedConfig {
@@ -36,6 +46,7 @@ interface ResolvedConfig {
   workspaceRoot: string
   maxItems: number
   resultItems: number
+  evidenceItems: number
 }
 
 interface PlanView {
@@ -49,6 +60,33 @@ interface PlanView {
     recipe: Pick<Plan['recipe'], 'id' | 'name' | 'version' | 'pattern' | 'classification'>
   }
   items: Array<Pick<Plan['items'][number], 'id' | 'relativePath' | 'destination' | 'classification' | 'status' | 'reason'>>
+  page: { offset: number; returned: number; total: number; nextOffset?: number }
+}
+
+interface SpecBatchView {
+  batch: {
+    id: string
+    revision: number
+    digest: string
+    sourceRoot: string
+    outputRoot: string
+    samples: string[]
+    summary: SpecBatch['summary']
+    instructions: string
+    approvalRevision?: number
+    approvedSampleCount: number
+    /** Present when the M1 core records discovery exclusions. */
+    discovery?: unknown
+  }
+  items: Array<{
+    id: string
+    relativePath: string
+    outputPath: string
+    status: string
+    reason?: string
+    evidenceCount: number
+    hasDraft: boolean
+  }>
   page: { offset: number; returned: number; total: number; nextOffset?: number }
 }
 
@@ -78,6 +116,15 @@ export class DshDitto extends Service<DshDittoConfig> {
     ctx.tools.register(applyTool(this))
     ctx.tools.register(statusTool(this))
     ctx.tools.register(recipeTool(this))
+    ctx.tools.register(specCreateTool(this))
+    ctx.tools.register(specQueueTool(this))
+    ctx.tools.register(specModuleTool(this))
+    ctx.tools.register(specSubmitTool(this))
+    ctx.tools.register(specReviewTool(this))
+    ctx.tools.register(specReviseTool(this))
+    ctx.tools.register(specApproveTool(this))
+    ctx.tools.register(specApplyTool(this))
+    ctx.tools.register(specStatusTool(this))
   }
 
   async preview(input: { sourceRoot: string; destinationRoot: string; recipeName?: string; pattern?: string; classification?: 'folder-prefix' | 'none'; maxItems?: number }): Promise<Plan> {
@@ -129,6 +176,62 @@ export class DshDitto extends Service<DshDittoConfig> {
   async getRecipe(recipeId: string) { return loadRecipe(recipeId, this.config.stateRoot) }
   async recipes() { return listRecipes(this.config.stateRoot) }
 
+  /**
+   * M1 deliberately does not call ctx.llm. A DSH host may expose different
+   * provider routes and user approvals, so the agent obtains this bounded
+   * evidence context, generates a JSON draft, then submits it for validation.
+   */
+  async createSpec(input: { sourceRoot: string; outputRoot: string; instructions?: string }): Promise<SpecBatch> {
+    const roots = await this.checkedRoots(input.sourceRoot, input.outputRoot)
+    const batch = await createSpecBatch({ sourceRoot: roots.sourceRoot, outputRoot: roots.destinationRoot, stateRoot: this.config.stateRoot, instructions: input.instructions })
+    await saveSpecBatch(batch, this.config.stateRoot)
+    return batch
+  }
+
+  async specStatus(batchId: string): Promise<SpecBatch> {
+    const batch = await loadSpecBatch(batchId, this.config.stateRoot)
+    await this.checkedPersistedSpecRoots(batch)
+    return batch
+  }
+
+  async submitSpec(batchId: string, revision: number, digest: string, moduleId: string, draft: unknown, metadata?: Record<string, string>): Promise<SpecBatch> {
+    return withPlanMutation(`spec:${batchId}`, async () => {
+      const batch = await this.specStatus(batchId)
+      assertSpecIdentity(batch, revision, digest)
+      const next = submitSpecDraft(batch, { moduleId, draft, metadata, generatorId: 'dsh-agent-driven' })
+      await saveSpecBatch(next, this.config.stateRoot)
+      return next
+    })
+  }
+
+  async approveSpec(batchId: string, revision: number, digest: string): Promise<SpecBatch> {
+    return withPlanMutation(`spec:${batchId}`, async () => {
+      const batch = await this.specStatus(batchId)
+      assertSpecIdentity(batch, revision, digest)
+      const next = approveSpecSamples(batch)
+      await saveSpecBatch(next, this.config.stateRoot)
+      return next
+    })
+  }
+
+  async reviseSpec(batchId: string, revision: number, digest: string, input: { sampleEdits?: Array<{ moduleId: string; markdown: string }>; instructions?: string }): Promise<SpecBatch> {
+    return withPlanMutation(`spec:${batchId}`, async () => {
+      const batch = await this.specStatus(batchId)
+      assertSpecIdentity(batch, revision, digest)
+      const next = reviseSpecBatch(batch, input)
+      await saveSpecBatch(next, this.config.stateRoot)
+      return next
+    })
+  }
+
+  async applySpec(batchId: string, revision: number, digest: string) {
+    return withPlanMutation(`spec:${batchId}`, async () => {
+      const batch = await this.specStatus(batchId)
+      assertSpecIdentity(batch, revision, digest)
+      return applySpecBatch(batch, { id: batchId, revision, digest }, this.config.stateRoot)
+    })
+  }
+
   view(plan: Plan, offset = 0, limit = this.config.resultItems): PlanView {
     if (!Number.isInteger(offset) || offset < 0) throw new Error('offset must be a non-negative integer')
     if (!Number.isInteger(limit) || limit < 1 || limit > this.config.resultItems) throw new Error(`limit must be an integer from 1 to ${this.config.resultItems}`)
@@ -155,6 +258,26 @@ export class DshDitto extends Service<DshDittoConfig> {
     }
   }
 
+  specView(batch: SpecBatch, offset = 0, limit = this.config.resultItems): SpecBatchView {
+    if (!Number.isInteger(offset) || offset < 0) throw new Error('offset must be a non-negative integer')
+    if (!Number.isInteger(limit) || limit < 1 || limit > this.config.resultItems) throw new Error(`limit must be an integer from 1 to ${this.config.resultItems}`)
+    const items = batch.items.slice(offset, offset + limit).map(item => ({
+      id: item.id, relativePath: item.relativePath, outputPath: item.outputPath, status: item.status,
+      ...(item.reason === undefined ? {} : { reason: item.reason }), evidenceCount: item.evidence.length, hasDraft: Boolean(item.draft),
+    }))
+    return {
+      batch: {
+        id: batch.id, revision: batch.revision, digest: batch.digest, sourceRoot: batch.sourceRoot, outputRoot: batch.outputRoot,
+        samples: batch.samples, summary: batch.summary, instructions: batch.recipe.instructions,
+        ...(batch.recipe.approvalRevision === undefined ? {} : { approvalRevision: batch.recipe.approvalRevision }),
+        approvedSampleCount: batch.recipe.approvedSamples.length,
+        ...(('discovery' in batch) ? { discovery: (batch as SpecBatch & { discovery?: unknown }).discovery } : {}),
+      },
+      items,
+      page: { offset, returned: items.length, total: batch.items.length, ...(offset + items.length < batch.items.length ? { nextOffset: offset + items.length } : {}) },
+    }
+  }
+
   private async checkedRoots(sourceInput: string, destinationInput: string): Promise<{ sourceRoot: string; destinationRoot: string }> {
     if (typeof sourceInput !== 'string' || typeof destinationInput !== 'string') throw new Error('Source and destination folders are required')
     const sourceRoot = await realpath(resolve(sourceInput))
@@ -167,6 +290,11 @@ export class DshDitto extends Service<DshDittoConfig> {
   private async checkedPersistedPlanRoots(plan: Plan): Promise<void> {
     const sourceRoot = await realpath(plan.sourceRoot)
     if (sourceRoot !== plan.sourceRoot || !within(this.config.workspaceRoot, sourceRoot) || !within(this.config.workspaceRoot, resolve(plan.destinationRoot))) throw new Error('Saved plan roots are outside this DSH Ditto profile workspace')
+  }
+
+  private async checkedPersistedSpecRoots(batch: SpecBatch): Promise<void> {
+    const sourceRoot = await realpath(batch.sourceRoot)
+    if (sourceRoot !== batch.sourceRoot || !within(this.config.workspaceRoot, sourceRoot) || !within(this.config.workspaceRoot, resolve(batch.outputRoot)) || overlaps(batch.outputRoot, this.config.stateRoot)) throw new Error('Saved specification batch roots are outside this DSH Ditto profile workspace')
   }
 
 }
@@ -272,6 +400,197 @@ function recipeTool(service: DshDitto) {
   })
 }
 
+function specCreateTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_create',
+    description: 'Start one M1 code-to-specification batch for TypeScript/JavaScript modules. It reads a bounded repository and writes only local batch metadata; it never changes source files or Markdown output. The batch contains exactly three representative sample module ids. First use ditto_spec_queue with phase=samples, then ditto_spec_module to obtain source evidence and ditto_spec_submit to submit one structured model draft per sample. The plugin does not make a hidden model call: the current DSH agent must generate the draft from returned evidence.',
+    parameters: {
+      source_root: { type: 'string', required: true, description: 'Existing TypeScript/JavaScript repository folder, inside the configured Ditto workspace. It is read-only.' },
+      output_root: { type: 'string', required: true, description: 'Fresh separate output folder, inside the configured Ditto workspace. Markdown specifications will be written here only after ditto_spec_apply.' },
+      instructions: { type: 'string', description: 'Optional user-approved batch guidance, up to 8,000 characters. It is included in every agent-driven generation request and has no executable meaning.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      return json(service.specView(await service.createSpec({ sourceRoot: args.source_root, outputRoot: args.output_root, instructions: args.instructions }), 0))
+    },
+  })
+}
+
+function specQueueTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_queue',
+    description: 'List bounded pending modules for one M1 specification phase, without changing files. Use phase=samples until all three samples have an explicit ditto_spec_approve approval for the current revision. Only then use phase=remaining. Any material ditto_spec_revise_samples edit clears that approval and locks remaining again. Returns module ids, proposed Markdown paths, structural facts, and a nextOffset for paging. For one selected module, call ditto_spec_module before creating its draft. If the batch identity is stale, call ditto_spec_status and restart from its current revision and digest.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create or ditto_spec_status.' },
+      phase: { type: 'string', required: true, enum: ['samples', 'remaining'], description: 'samples generates the three calibration examples. remaining becomes available only after all samples were approved.' },
+      offset: { type: 'integer', description: 'Zero-based offset within this phase; default 0. Pass nextOffset to read the next page.' },
+      limit: { type: 'integer', description: 'Maximum returned module records; default and maximum come from profile configuration.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      const batch = await service.specStatus(args.batch_id)
+      const limit = args.limit ?? service.config.resultItems
+      const offset = args.offset ?? 0
+      if (!Number.isInteger(offset) || offset < 0) throw new Error('offset must be a non-negative integer')
+      if (!Number.isInteger(limit) || limit < 1 || limit > service.config.resultItems) throw new Error(`limit must be an integer from 1 to ${service.config.resultItems}`)
+      if (args.phase === 'remaining' && !hasCurrentSpecApproval(batch)) throw new Error('Remaining modules are locked until ditto_spec_approve approves all three samples for the current revision; after any sample or instruction edit, review and approve again')
+      const matching = batch.items.filter(item => args.phase === 'samples' ? batch.samples.includes(item.id) && ['pending', 'needs-review'].includes(item.status) : !batch.samples.includes(item.id) && ['pending', 'needs-review'].includes(item.status))
+      const entries = matching.slice(offset, offset + limit).map(item => ({ id: item.id, relativePath: item.relativePath, outputPath: item.outputPath, status: item.status, facts: item.facts, evidenceCount: item.evidence.length }))
+      return json({ batch: { id: batch.id, revision: batch.revision, digest: batch.digest }, phase: args.phase, items: entries, page: { offset, returned: entries.length, total: matching.length, ...(offset + entries.length < matching.length ? { nextOffset: offset + entries.length } : {}) } })
+    },
+  })
+}
+
+function specModuleTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_module',
+    description: 'Get the bounded agent-generation context for one pending M1 module. Use an id from ditto_spec_queue. It returns real line-numbered evidence and deterministic facts, plus the explicitly approved current-revision sample recipes for remaining modules. Generate only a JSON SpecDraft whose moduleId matches this module and whose every factual field cites returned ev_ ids. Page evidence with nextEvidenceOffset; do not infer facts from evidence that was not returned. Remaining modules stay locked until ditto_spec_approve, and lock again after any material sample or instruction edit. Submit the completed JSON through ditto_spec_submit. This tool never calls a provider itself.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create or ditto_spec_status.' },
+      module_id: { type: 'string', required: true, description: 'A pending module id returned by ditto_spec_queue.' },
+      evidence_offset: { type: 'integer', description: 'Zero-based evidence-chunk offset; default 0. Pass nextEvidenceOffset to continue.' },
+      evidence_limit: { type: 'integer', description: 'Evidence chunks to return; default and maximum come from profile configuration.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      const batch = await service.specStatus(args.batch_id)
+      const item = batch.items.find(candidate => candidate.id === args.module_id)
+      if (!item || !['pending', 'needs-review'].includes(item.status)) throw new Error('The requested module is not pending a structured draft')
+      const isSample = batch.samples.includes(item.id)
+      if (!isSample && !hasCurrentSpecApproval(batch)) throw new Error('This remaining module is locked. Review and call ditto_spec_approve for all three current-revision samples before requesting it')
+      const offset = args.evidence_offset ?? 0; const limit = args.evidence_limit ?? service.config.evidenceItems
+      if (!Number.isInteger(offset) || offset < 0) throw new Error('evidence_offset must be a non-negative integer')
+      if (!Number.isInteger(limit) || limit < 1 || limit > service.config.evidenceItems) throw new Error(`evidence_limit must be an integer from 1 to ${service.config.evidenceItems}`)
+      const evidence = item.evidence.slice(offset, offset + limit)
+      return json({
+        batch: { id: batch.id, revision: batch.revision, digest: batch.digest },
+        request: {
+          module: { id: item.id, relativePath: item.relativePath, sourceHash: item.sourceHash, outputPath: item.outputPath, facts: item.facts, evidence },
+          instructions: batch.recipe.instructions,
+          approvedSamples: isSample ? [] : approvedSamples(batch.recipe.approvedSamples),
+          draftContract: { version: 1, moduleId: item.id, requiredRule: 'Every factual field needs one or more evidence ids returned for this module. Unsupported or uncertain statements belong in confirmations as questions; related evidence ids are optional.' },
+        },
+        evidencePage: { offset, returned: evidence.length, total: item.evidence.length, ...(offset + evidence.length < item.evidence.length ? { nextEvidenceOffset: offset + evidence.length } : {}) },
+      })
+    },
+  })
+}
+
+function specSubmitTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_submit',
+    description: 'Validate and persist exactly one agent-produced M1 structured draft. It accepts JSON only, never Markdown or output paths. The draft must use version=1, exactly match module_id, and cite valid evidence ids from ditto_spec_module for factual claims. confirmations are questions and may have relatedEvidenceIds. Invalid citations, unsupported fields, or stale batch identity are rejected before any Markdown file is written. On error, call ditto_spec_status; for evidence errors, retrieve the module again and repair the JSON. Successful sample drafts become sample-ready; successful remaining drafts become ready for review/apply.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id from the latest ditto_spec_status, ditto_spec_queue, or ditto_spec_module result.' },
+      revision: { type: 'integer', required: true, description: 'Exact latest batch revision. On mismatch, call ditto_spec_status.' },
+      digest: { type: 'string', required: true, description: 'Exact latest batch digest. On mismatch, call ditto_spec_status.' },
+      module_id: { type: 'string', required: true, description: 'Pending module id from ditto_spec_queue.' },
+      draft: { type: 'json', required: true, description: 'One JSON SpecDraft. title, purpose, responsibilities, publicApi, dependencies, and errors use text plus citations. confirmations use question plus optional relatedEvidenceIds. Never include a path, Markdown, HTML, script, or command.' },
+      metadata: { type: 'object', additionalProperties: true, description: 'Optional bounded string-only audit metadata about this agent-generated draft. Do not include credentials or provider secrets.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      return json(service.specView(await service.submitSpec(args.batch_id, args.revision, args.digest, args.module_id, args.draft, args.metadata as Record<string, string> | undefined), 0))
+    },
+  })
+}
+
+function specReviewTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_review',
+    description: 'Read one generated M1 Markdown specification for user review without writing files. Use it after ditto_spec_submit for a sample before ditto_spec_approve, and for any ready module before ditto_spec_apply. It returns renderer-owned Markdown, its planned output path, and the evidence links it cites. For a calibration sample, use ditto_spec_revise_samples to save user edits before approval.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create or ditto_spec_status.' },
+      module_id: { type: 'string', required: true, description: 'A generated module id from ditto_spec_queue or ditto_spec_status.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      const batch = await service.specStatus(args.batch_id)
+      const item = batch.items.find(candidate => candidate.id === args.module_id)
+      if (!item || !item.renderedMarkdown) throw new Error('The requested module has no validated rendered specification to review')
+      return json({ batch: { id: batch.id, revision: batch.revision, digest: batch.digest }, module: { id: item.id, relativePath: item.relativePath, outputPath: item.outputPath, status: item.status, markdown: item.approvedMarkdown ?? item.renderedMarkdown, renderedHash: item.renderedHash, evidence: item.evidence.map(chunk => ({ id: chunk.id, relativePath: chunk.relativePath, startLine: chunk.startLine, endLine: chunk.endLine })) } })
+    },
+  })
+}
+
+function specReviseTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_revise_samples',
+    description: 'Persist user-reviewed Markdown edits for zero to three M1 calibration samples, and optionally replace batch instructions. A material edit changes the recipe revision, clears the prior approval, invalidates held-out drafts, and locks remaining generation until a new ditto_spec_approve. It never writes output specifications. Every factual Markdown line must retain a valid [ev_…] citation for that sample. Only submit edits the user actually requested or approved. After this tool, review the returned identity and call ditto_spec_approve when all three samples are ready.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create or ditto_spec_status.' },
+      revision: { type: 'integer', required: true, description: 'Exact latest batch revision.' },
+      digest: { type: 'string', required: true, description: 'Exact latest batch digest.' },
+      sample_edits: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { module_id: { type: 'string', required: true, description: 'One of the three sample module ids.' }, markdown: { type: 'string', required: true, description: 'User-reviewed Markdown for that sample. Preserve valid [ev_…] evidence citations on each factual line.' } } }, description: 'Optional edits for distinct calibration samples. Omit or use an empty list to change only instructions.' },
+      instructions: { type: 'string', description: 'Optional replacement user-approved batch guidance, up to 8,000 characters.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      const sampleEdits = args.sample_edits?.map(edit => ({ moduleId: edit.module_id, markdown: edit.markdown }))
+      return json(service.specView(await service.reviseSpec(args.batch_id, args.revision, args.digest, { sampleEdits, instructions: args.instructions }), 0))
+    },
+  })
+}
+
+function specApproveTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_approve',
+    description: 'Record approval of all three displayed M1 calibration samples as a versioned, non-executable recipe. Call this only after the user has reviewed the rendered sample Markdown and explicitly approved it. It does not write Markdown outputs. It changes the batch revision and digest; use the returned identity when obtaining and submitting the remaining modules. If a sample needs editing, repair it through the product review surface before approval rather than inventing an unreviewed replacement here.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create or ditto_spec_status.' },
+      revision: { type: 'integer', required: true, description: 'Exact latest batch revision.' },
+      digest: { type: 'string', required: true, description: 'Exact latest batch digest.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      return json(service.specView(await service.approveSpec(args.batch_id, args.revision, args.digest), 0))
+    },
+  })
+}
+
+function specApplyTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_apply',
+    description: 'Write reviewed M1 Markdown specifications into the batch output root using the exact displayed revision and digest. Call only after the user approves the full batch preview. It rechecks every source hash, prevents traversal, symlink escapes, collisions, and overwrites, and records actual per-module outcomes for resume. It never edits source files. If rejected as stale, call ditto_spec_status and obtain renewed user review; if a source changed, create a new batch.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create or ditto_spec_status.' },
+      revision: { type: 'integer', required: true, description: 'Exact reviewed batch revision.' },
+      digest: { type: 'string', required: true, description: 'Exact reviewed batch digest.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      const result = await service.applySpec(args.batch_id, args.revision, args.digest)
+      checkNotAborted(exec.signal)
+      return json({ result: { batchId: result.batchId, revision: result.revision, digest: result.digest, summary: result.summary }, ...service.specView(await service.specStatus(args.batch_id), 0) })
+    },
+  })
+}
+
+function specStatusTool(service: DshDitto) {
+  return defineTool({
+    name: 'ditto_spec_status',
+    description: 'Read one durable M1 specification batch without changing files. Returns actual per-module statuses, discovery/exclusion accounting when available, and a bounded page with nextOffset. Use it after any stale, validation, or interrupted-apply error to recover the current revision and digest before retrying.',
+    parameters: {
+      batch_id: { type: 'string', required: true, description: 'Batch id returned by ditto_spec_create.' },
+      offset: { type: 'integer', description: 'Zero-based module offset; default 0. Pass nextOffset to continue.' },
+      limit: { type: 'integer', description: 'Module count; default and maximum come from profile configuration.' },
+    },
+    output: jsonOutput,
+    async execute(args, exec) {
+      checkNotAborted(exec.signal)
+      return json(service.specView(await service.specStatus(args.batch_id), args.offset ?? 0, args.limit ?? service.config.resultItems))
+    },
+  })
+}
+
 const jsonOutput = {
   schema: { type: 'json' as const },
   render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
@@ -286,9 +605,11 @@ function resolveConfig(config: DshDittoConfig): ResolvedConfig {
   if (!within(workspaceRoot, stateRoot)) throw new Error('DSH Ditto stateRoot must stay inside workspaceRoot')
   const maxItems = config.maxItems ?? 200
   const resultItems = config.resultItems ?? 25
+  const evidenceItems = config.evidenceItems ?? 20
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 1_000) throw new Error('DSH Ditto maxItems must be an integer from 1 to 1000')
   if (!Number.isInteger(resultItems) || resultItems < 1 || resultItems > 100) throw new Error('DSH Ditto resultItems must be an integer from 1 to 100')
-  return { workspaceRoot, stateRoot, maxItems, resultItems }
+  if (!Number.isInteger(evidenceItems) || evidenceItems < 1 || evidenceItems > 40) throw new Error('DSH Ditto evidenceItems must be an integer from 1 to 40')
+  return { workspaceRoot, stateRoot, maxItems, resultItems, evidenceItems }
 }
 
 function within(root: string, target: string): boolean {
@@ -297,6 +618,30 @@ function within(root: string, target: string): boolean {
 }
 
 function overlaps(a: string, b: string): boolean { return within(a, b) || within(b, a) }
+
+function assertSpecIdentity(batch: SpecBatch, revision: number, digest: string): void {
+  if (!Number.isInteger(revision) || batch.revision !== revision || typeof digest !== 'string' || batch.digest !== digest) throw new Error('Specification batch changed after review; call ditto_spec_status and retry with its current revision and digest')
+}
+
+/** Mirrors the core's current-recipe gate so native tools never expose stale few-shot examples. */
+function hasCurrentSpecApproval(batch: SpecBatch): boolean {
+  const approved = batch.recipe.approvedSamples.map(sample => sample.moduleId).sort()
+  return batch.recipe.approvalRevision === batch.revision
+    && approved.length === 3
+    && new Set(approved).size === 3
+    && approved.join('\u0000') === [...batch.samples].sort().join('\u0000')
+    && batch.samples.every(id => {
+      const item = batch.items.find(candidate => candidate.id === id)
+      const sample = batch.recipe.approvedSamples.find(candidate => candidate.moduleId === id)
+      return item?.status === 'approved' && item.approvedMarkdown === sample?.markdown
+    })
+}
+
+/** Core validates the three approved recipes against the shared 12k bound. Never truncate reviewed content here. */
+function approvedSamples(samples: Array<{ moduleId: string; markdown: string }>): Array<{ moduleId: string; markdown: string }> {
+  if (samples.length > 3 || samples.some(sample => sample.markdown.length > 12_000)) throw new Error('Approved sample recipe exceeds the supported native-tool context bound; reload batch status and revise the sample')
+  return samples.map(sample => ({ moduleId: sample.moduleId, markdown: sample.markdown }))
+}
 
 async function withPlanMutation<T>(planId: string, work: () => Promise<T>): Promise<T> {
   const prior = planMutations.get(planId) ?? Promise.resolve()

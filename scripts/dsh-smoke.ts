@@ -15,8 +15,8 @@ async function main(): Promise<void> {
     console.log(`DSH Ditto component-host smoke: ToolRuntime ${EXPECTED}, SystemPrompt ${EXPECTED}`)
     console.log(`Isolated DSH_HOME: ${dshHome}`)
     await run(process.execPath, [require.resolve('vitest/vitest.mjs'), 'run', 'tests/dsh/native-tools.spec.ts'], { ...process.env, DSH_HOME: dshHome })
-    console.log('Passed: real Cordis + published ToolRuntime registered and dispatched all five native tools; pre-execute and guard denial prevented ditto_apply side effects.')
-    console.log('Scope: component-host smoke only. It does not boot an @deepseek-ai/dsh CLI profile or make a model call.')
+    console.log('Passed: real Cordis + published ToolRuntime registered M0 and M1 native tools, completed the 12-module agent-driven evidence/draft flow, and verified guard/pre-execute denial prevents both copy and specification writes.')
+    console.log('Scope: component-host smoke only. M1 deliberately uses an agent-driven tool loop; it does not boot an @deepseek-ai/dsh CLI profile or make a direct plugin model call.')
   } finally {
     await rm(dshHome, { recursive: true, force: true })
   }

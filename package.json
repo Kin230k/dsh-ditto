@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH Ditto M0: reviewed, deterministic copy-and-classify batches",
+  "description": "DSH Ditto: evidence-backed batch code-to-specification and reviewed file batches",
   "bin": {
     "dsh-ditto": "./dist/cli.js"
   },
@@ -20,6 +20,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "demo": "tsx src/cli.ts demo",
+    "demo:spec": "tsx src/cli.ts demo-spec",
     "smoke:dsh": "tsx scripts/dsh-smoke.ts"
   },
   "dependencies": {

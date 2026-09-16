@@ -28,6 +28,8 @@ describe('DSH Ditto native tools on published Cordis + ToolRuntime', () => {
 
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(expect.arrayContaining([
       'ditto_preview', 'ditto_revise', 'ditto_apply', 'ditto_status', 'ditto_recipe',
+      'ditto_spec_create', 'ditto_spec_queue', 'ditto_spec_module', 'ditto_spec_submit',
+      'ditto_spec_review', 'ditto_spec_revise_samples', 'ditto_spec_approve', 'ditto_spec_apply', 'ditto_spec_status',
     ]))
 
     const preview = await call(ctx, 'ditto_preview', { source_root: source, destination_root: output, pattern: '整理-{stem}' })
@@ -71,6 +73,70 @@ describe('DSH Ditto native tools on published Cordis + ToolRuntime', () => {
     await ctx.fiber.dispose()
   })
 
+  it('runs the M1 agent-driven evidence/draft loop through the real native runtime and keeps apply behind guards', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-ditto-spec-native-'))
+    roots.push(root)
+    const source = join(root, 'source')
+    const output = join(root, 'specifications')
+    const state = join(root, '.dsh-ditto')
+    await mkdir(source)
+    for (let index = 1; index <= 12; index++) await writeFile(join(source, `module-${index}.ts`), `export function module${index}(value: string) { return value }\n`, 'utf8')
+
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, { mode: 'native' })
+    await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, resultItems: 20, evidenceItems: 4 })
+
+    let batch = (value(await call(ctx, 'ditto_spec_create', { source_root: source, output_root: output, instructions: '以繁體中文說明。' })).batch as { id: string; revision: number; digest: string; samples: string[] })
+    expect(batch.samples).toHaveLength(3)
+    const initialStatus = value(await call(ctx, 'ditto_spec_status', { batch_id: batch.id, offset: 0, limit: 1 }))
+    expect((initialStatus.batch as { discovery: { inScope: number; excludedTotal: number } }).discovery).toMatchObject({ inScope: 12 })
+    const sampleQueue = value(await call(ctx, 'ditto_spec_queue', { batch_id: batch.id, phase: 'samples' }))
+    expect(sampleQueue.page).toMatchObject({ total: 3 })
+    await expectCallError(ctx, 'ditto_spec_submit', {
+      batch_id: batch.id, revision: batch.revision, digest: batch.digest, module_id: batch.samples[0],
+      draft: draft(batch.samples[0], 'ev_000000000000000000000000'),
+    })
+
+    for (const moduleId of batch.samples) {
+      const context = value(await call(ctx, 'ditto_spec_module', { batch_id: batch.id, module_id: moduleId }))
+      const evidenceId = evidenceIdFrom(context)
+      const submitted = value(await call(ctx, 'ditto_spec_submit', { batch_id: batch.id, revision: batch.revision, digest: batch.digest, module_id: moduleId, draft: draft(moduleId, evidenceId) }))
+      batch = submitted.batch as typeof batch
+    }
+    const review = value(await call(ctx, 'ditto_spec_review', { batch_id: batch.id, module_id: batch.samples[0] }))
+    const reviewedMarkdown = (review.module as { markdown: string }).markdown
+    batch = (value(await call(ctx, 'ditto_spec_revise_samples', { batch_id: batch.id, revision: batch.revision, digest: batch.digest, sample_edits: [{ module_id: batch.samples[0], markdown: reviewedMarkdown }], instructions: '以繁體中文說明。' })).batch as typeof batch)
+    await expectCallError(ctx, 'ditto_spec_queue', { batch_id: batch.id, phase: 'remaining' })
+
+    batch = (value(await call(ctx, 'ditto_spec_approve', { batch_id: batch.id, revision: batch.revision, digest: batch.digest })).batch as typeof batch)
+    expect(batch.revision).toBe(3)
+    const remaining = value(await call(ctx, 'ditto_spec_queue', { batch_id: batch.id, phase: 'remaining', limit: 20 }))
+    const remainingIds = (remaining.items as Array<{ id: string }>).map(item => item.id)
+    expect(remainingIds).toHaveLength(9)
+    for (const moduleId of remainingIds) {
+      const context = value(await call(ctx, 'ditto_spec_module', { batch_id: batch.id, module_id: moduleId, evidence_limit: 4 }))
+      const submitted = value(await call(ctx, 'ditto_spec_submit', { batch_id: batch.id, revision: batch.revision, digest: batch.digest, module_id: moduleId, draft: draft(moduleId, evidenceIdFrom(context)) }))
+      batch = submitted.batch as typeof batch
+    }
+
+    const guard = ctx.tools.guard(exec => exec.name === 'ditto_spec_apply' ? 'test guard denies specification writes' : undefined)
+    await expectCallError(ctx, 'ditto_spec_apply', { batch_id: batch.id, revision: batch.revision, digest: batch.digest })
+    await expect(readFile(join(output, 'module-1.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    guard()
+
+    const preExecute = ctx.on('tools/pre-execute', async (exec, next) => exec.name === 'ditto_spec_apply' ? { kind: 'deny', reason: 'test pre-execute denies specification writes' } : next())
+    await expectCallError(ctx, 'ditto_spec_apply', { batch_id: batch.id, revision: batch.revision, digest: batch.digest })
+    await expect(readFile(join(output, 'module-1.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    preExecute()
+
+    const applied = value(await call(ctx, 'ditto_spec_apply', { batch_id: batch.id, revision: batch.revision, digest: batch.digest }))
+    expect((applied.result as { summary: { applied: number } }).summary.applied).toBe(12)
+    expect(await readFile(join(output, 'module-1.md'), 'utf8')).toContain('# Module module_')
+    expect(await readFile(join(source, 'module-1.ts'), 'utf8')).toBe('export function module1(value: string) { return value }\n')
+    await ctx.fiber.dispose()
+  })
+
   it('excludes durable state when a source folder contains it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-ditto-native-'))
     roots.push(root)
@@ -97,4 +163,17 @@ async function call(ctx: Context, name: string, arguments_: unknown) {
 function value(result: Awaited<ReturnType<ToolRuntime['execute']>>): Record<string, unknown> {
   if (result.isError) throw new Error(result.error.message)
   return result.value as Record<string, unknown>
+}
+
+function draft(moduleId: string, evidenceId: string) {
+  return { version: 1, moduleId, title: { text: `Module ${moduleId}`, citations: [evidenceId] }, purpose: { text: 'Exports one function.', citations: [evidenceId] } }
+}
+
+function evidenceIdFrom(context: Record<string, unknown>): string {
+  const request = context.request as { module: { evidence: Array<{ id: string }> } }
+  return request.module.evidence[0]!.id
+}
+
+async function expectCallError(ctx: Context, name: string, arguments_: unknown): Promise<void> {
+  expect((await call(ctx, name, arguments_)).isError).toBe(true)
 }

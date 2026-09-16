@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
-import { applyPlan, createPlan, defaultRecipe, listRecipes, loadPlan, loadRecipe, recipeFromPlan, revisePlan, savePlan, saveRecipe } from './core/index.js'
+import { applyPlan, createPlan, defaultRecipe, listRecipes, loadPlan, loadRecipe, recipeFromPlan, revisePlan, savePlan, saveRecipe, applySpecBatch, approveSpecSamples, createSpecBatch, generateSpecBatch, isSpecBatchReadyToApply, reviseSpecBatch, saveSpecBatch } from './core/index.js'
 import type { Plan, PlanEdit } from './core/types.js'
 import { renderWorkbench } from './ui/workbench.js'
+import { renderSpecWorkbench, type SpecBatchLike } from './ui/spec-workbench.js'
+import type { SpecBatch, SpecGenerator } from './spec/types.js'
 
 export interface LocalWorkbenchOptions {
   sourceRoot: string
@@ -17,6 +19,18 @@ export interface LocalWorkbench {
   url: string
   csrfToken: string
   close(): Promise<void>
+}
+
+/** Options for the separate M1 code-to-specification page. M0 stays available through startLocalWorkbench. */
+export interface SpecWorkbenchServerOptions {
+  sourceRoot: string
+  outputRoot: string
+  stateRoot: string
+  generator: SpecGenerator
+  batch?: SpecBatch
+  instructions?: string
+  /** Only use a deterministic generator for a labelled local demo or automated test. */
+  demo?: boolean
 }
 
 const MAX_BODY_BYTES = 16 * 1024
@@ -35,6 +49,29 @@ export async function startLocalWorkbench(options: LocalWorkbenchOptions): Promi
       else await route(request, response, context)
     }
     catch (error: unknown) { respondJson(response, statusFor(error), { error: messageFor(error) }) }
+  })
+  await new Promise<void>((resolveStart, rejectStart) => { server.once('error', rejectStart); server.listen({ host: '127.0.0.1', port: 0 }, () => { server.off('error', rejectStart); resolveStart() }) })
+  const address = server.address() as AddressInfo
+  return { url: `http://127.0.0.1:${address.port}`, csrfToken, close: () => closeServer(server) }
+}
+
+/**
+ * Starts the M1 workbench on a new loopback server. It initially produces only the
+ * three calibration samples; the remaining modules are unavailable until approval.
+ */
+export async function startSpecWorkbench(options: SpecWorkbenchServerOptions): Promise<LocalWorkbench> {
+  let batch = options.batch ?? await createSpecBatch({ sourceRoot: options.sourceRoot, outputRoot: options.outputRoot, stateRoot: options.stateRoot, instructions: options.instructions })
+  if (!options.batch) batch = await generateSpecBatch(batch, options.generator, { only: 'samples', stateRoot: options.stateRoot })
+  await saveSpecBatch(batch, options.stateRoot)
+  const csrfToken = randomBytes(32).toString('base64url')
+  let mutationTail = Promise.resolve()
+  const server = createServer(async (request, response) => {
+    try {
+      if (!hasExpectedHost(request, server)) return respondJson(response, 421, { error: '只接受這個本機示範頁面的請求。' })
+      const context = { csrfToken, getBatch: () => batch, setBatch: (next: SpecBatch) => { batch = next }, generator: options.generator, stateRoot: options.stateRoot, demo: options.demo ?? false }
+      if (request.method === 'POST') await withMutationLock(() => specRoute(request, response, context), tail => { mutationTail = tail }, mutationTail)
+      else await specRoute(request, response, context)
+    } catch (error: unknown) { respondJson(response, statusFor(error), { error: messageFor(error) }) }
   })
   await new Promise<void>((resolveStart, rejectStart) => { server.once('error', rejectStart); server.listen({ host: '127.0.0.1', port: 0 }, () => { server.off('error', rejectStart); resolveStart() }) })
   const address = server.address() as AddressInfo
@@ -83,6 +120,71 @@ async function route(request: IncomingMessage, response: ServerResponse, context
   const next = await createPlan({ sourceRoot: context.sourceRoot, destinationRoot: context.destinationRoot, recipe, excludedRoots: [context.stateRoot] })
   await savePlan(next, context.stateRoot); context.setPlan(next)
   return respondJson(response, 200, { plan: next })
+}
+
+interface SpecRouteContext {
+  csrfToken: string
+  stateRoot: string
+  generator: SpecGenerator
+  demo: boolean
+  getBatch(): SpecBatch
+  setBatch(batch: SpecBatch): void
+}
+
+async function specRoute(request: IncomingMessage, response: ServerResponse, context: SpecRouteContext): Promise<void> {
+  const method = request.method ?? 'GET'; const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
+  if (method === 'GET' && pathname === '/') return respondHtml(response, renderSpecWorkbench(specView(context.getBatch()), { csrfToken: context.csrfToken, samplesApproved: specSamplesApproved(context.getBatch()), canApply: isSpecBatchReadyToApply(context.getBatch()), demo: context.demo }))
+  if (method === 'GET' && pathname === '/api/spec/batch') return respondJson(response, 200, { batch: specView(context.getBatch()), samplesApproved: specSamplesApproved(context.getBatch()), canApply: isSpecBatchReadyToApply(context.getBatch()) })
+  if (method !== 'POST' || !['/api/spec/revise', '/api/spec/approve', '/api/spec/generate', '/api/spec/apply'].includes(pathname)) return respondJson(response, 404, { error: '找不到這個本機功能。' })
+  if (!sameOrigin(request) || request.headers['x-dsh-csrf'] !== context.csrfToken) return respondJson(response, 403, { error: '這個本機操作沒有通過安全檢查。' })
+  const body = await readJson(request); const current = context.getBatch()
+  if (pathname === '/api/spec/revise') {
+    const revision = integer(body.revision, 'revision'); if (revision !== current.revision) throw new ClientError(409, '批次已更新，請重新確認。')
+    const sampleEdits = specSampleEdits(body.sampleEdits); const instructions = body.instructions === undefined ? undefined : text(body.instructions, 'instructions', 8_000)
+    try {
+      const next = reviseSpecBatch(current, { sampleEdits, instructions }); await saveSpecBatch(next, context.stateRoot); context.setBatch(next)
+      return respondJson(response, 200, { batch: specView(next), samplesApproved: specSamplesApproved(next), canApply: isSpecBatchReadyToApply(next) })
+    } catch (error: unknown) { throw new ClientError(409, messageFor(error)) }
+  }
+  const revision = integer(body.revision, 'revision'); const digest = text(body.digest, 'digest', 64)
+  if (current.revision !== revision || current.digest !== digest) throw new ClientError(409, '批次已更新，請重新確認。')
+  if (pathname === '/api/spec/approve') {
+    try {
+      const next = approveSpecSamples(current); await saveSpecBatch(next, context.stateRoot); context.setBatch(next)
+      return respondJson(response, 200, { batch: specView(next), samplesApproved: specSamplesApproved(next), canApply: isSpecBatchReadyToApply(next) })
+    } catch (error: unknown) { throw new ClientError(409, messageFor(error)) }
+  }
+  if (pathname === '/api/spec/generate') {
+    try {
+      const next = await generateSpecBatch(current, context.generator, { only: 'remaining', stateRoot: context.stateRoot }); await saveSpecBatch(next, context.stateRoot); context.setBatch(next)
+      return respondJson(response, 200, { batch: specView(next), samplesApproved: specSamplesApproved(next), canApply: isSpecBatchReadyToApply(next) })
+    } catch (error: unknown) { throw new ClientError(409, messageFor(error)) }
+  }
+  const id = text(body.id, 'id', 64)
+  if (!isSpecBatchReadyToApply(current)) throw new ClientError(409, '完整批次預覽尚未完成，不能寫入規格')
+  const result = await applySpecBatch(current, { id, revision, digest }, context.stateRoot)
+  const next = { ...current, items: result.items, summary: result.summary }; context.setBatch(next)
+  return respondJson(response, 200, { ...result, batch: specView(next), samplesApproved: specSamplesApproved(next), canApply: isSpecBatchReadyToApply(next) })
+}
+
+/** The UI reflects the durable recipe and item statuses; only core transitions create this state. */
+function specSamplesApproved(batch: SpecBatch): boolean {
+  const recipeIds = batch.recipe.approvedSamples.map(sample => sample.moduleId).sort()
+  return batch.recipe.approvalRevision === batch.revision && recipeIds.length === batch.samples.length && recipeIds.length === 3 && new Set(recipeIds).size === 3 && recipeIds.join('\u0000') === [...batch.samples].sort().join('\u0000') && batch.samples.every(id => { const item = batch.items.find(candidate => candidate.id === id); const approved = batch.recipe.approvedSamples.find(sample => sample.moduleId === id); return item?.status === 'approved' && item.approvedMarkdown === approved?.markdown })
+}
+
+function specSampleEdits(value: unknown): Array<{ moduleId: string; markdown: string }> {
+  if (!Array.isArray(value) || value.length !== 3 || value.some(edit => !edit || typeof edit !== 'object' || typeof (edit as { moduleId?: unknown }).moduleId !== 'string' || typeof (edit as { markdown?: unknown }).markdown !== 'string')) throw new ClientError(400, '三份樣本修改內容不正確。')
+  return value as Array<{ moduleId: string; markdown: string }>
+}
+
+/** Keep source paths/private generator metadata out of browser state while retaining evidence links. */
+function specView(batch: SpecBatch): SpecBatchLike {
+  return {
+    id: batch.id, revision: batch.revision, digest: batch.digest, sourceRoot: batch.sourceRoot, outputRoot: batch.outputRoot,
+    instructions: batch.recipe.instructions, samples: batch.samples, modules: batch.items.map(item => ({ id: item.id, relativePath: item.relativePath, outputPath: item.outputPath, status: item.status, reason: item.reason, renderedMarkdown: item.approvedMarkdown ?? item.renderedMarkdown, evidence: item.evidence.map(evidence => ({ id: evidence.id, relativePath: evidence.relativePath, startLine: evidence.startLine, endLine: evidence.endLine })), structuralFacts: item.facts })),
+    excluded: batch.discovery.excluded.map(item => ({ relativePath: item.relativePath, reason: item.reason })), summary: { ...batch.summary, inScope: batch.discovery.inScope, excluded: batch.discovery.excludedTotal },
+  }
 }
 
 function sameOrigin(request: IncomingMessage): boolean {
