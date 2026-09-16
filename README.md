@@ -1,96 +1,77 @@
 # DSH Ditto｜照樣做
 
-**先做幾份給你看，改到滿意，其餘照樣做。**
+[English](README.en.md) · [繁體中文](README.md)
 
-Ditto 是給一般使用者的 DSH 批次工作台。M0 可把雜亂文件複製到命名一致、分類清楚的新資料夾，原文件保留。M1 可把 TypeScript／JavaScript 程式庫中的 10–50 個模組，批量產出可追溯的 Markdown 規格。
+> **先把三份做成你要的樣子，再把整個程式庫照樣做好。**
 
-M0「整理預覽版」提供宣告式命名規則、三份分散抽樣、整批預覽、逐檔修正、真實副本輸出、逐項狀態與配方保存。M1「程式碼轉規格」提供來源掃描、三份可編輯規格樣本、明確核准、完整預覽，以及寫入獨立輸出資料夾。兩個流程都保留來源檔案。
+DSH Ditto 把「逐檔和 AI 討論」變成可審查的批次工作。它先從 TypeScript／JavaScript 程式庫挑出三個結構不同的模組，讓你直接修改規格範例；你核准後，Ditto 用同一套寫法完成其餘模組，並把每個敘述連回原始碼行號。
 
-這個新專案獨立於 KeepGate，也沒有修改本機既有 DSH。目標相容性測試使用 `0.1.5-rc.1` 的公開套件；相容性需以實際 smoke 結果為準。
+適合需要把 10–50 個模組變成一致 API 文件、模組說明、測試案例清單或重構前行為規格的團隊。
 
-## 核心用途：批量把程式碼變成規格
+## 為什麼不直接把程式碼丟給 AI？
 
-比起單純整理檔名，Ditto 更有價值的用途是用同一套要求，批量把程式碼轉成可驗證的規格。
+單一檔案交給 AI 很快。模組一多，格式要求、術語、核對與漏檔檢查就得重複做。Ditto 把這些工作集中成一個可見流程：
 
-> 給 Ditto 一個你認可的規格範例，它會依照這個標準處理整個程式庫。
+1. **三份樣本定標準**：直接改 Markdown，不必寫長 prompt。
+2. **整批預覽找例外**：所有模組都有狀態與輸出路徑，不靠猜測是否漏掉。
+3. **證據連回原始碼**：每個事實都引用實際檔案與行號；無法證明的內容列為「待確認」。
+4. **先檢查，再寫入**：來源檔不執行、不修改；文件只寫進新的輸出資料夾。
 
-目前可用流程：
-
-1. 掃描專案中的 API、service 與資料模型。
-2. 選出三個不同類型的模組，先產生規格範例。
-3. 使用者直接修改範例，決定格式、深度與用詞。
-4. 先明確核准三份樣本；修改樣本或指示後，系統會撤銷舊核准。
-5. Ditto 把核准樣本當作本批的範例，生成其餘模組並顯示完整預覽。
-6. 來源 hash、證據引用與輸出路徑通過檢查後，才寫入新的規格資料夾；每個模組保留成功、待確認或失敗結果。
-
-產出的每項敘述都應附上來源位置。無法由程式碼證明的內容必須標成「待確認」，不能自行補完：
-
-```markdown
-## POST /orders
-
-用途：建立訂單
-
-輸入：
-- customerId: string，必填
-- items: OrderItem[]，至少一筆
-
-錯誤：
-- 400：輸入資料不完整
-- 409：訂單識別碼重複
-
-來源：
-- src/routes/orders.ts:42
-- src/services/order-service.ts:18
-- src/models/order.ts:7
+```text
+掃描程式庫 → 三份規格樣本 → 你修改並核准 → 完整批次預覽 → 寫入 Markdown
 ```
 
-直接請 AI 處理一個檔案很方便；當專案有數十個模組時，使用者卻要反覆貼程式碼、重講格式、檢查遺漏並整理輸出。Ditto 的優勢是先用少數範例校準要求，再以一致標準處理整批內容，於套用前展示完整預覽，最後回報每個項目的真實結果。第一批候選用途包括：
+## 你會得到什麼
 
-- 程式碼 → API 規格
-- 程式碼 → 模組說明
-- 程式碼 → 測試案例清單
-- 多個相似模組 → 統一格式的技術文件
-- 舊系統 → 重構前行為規格
+- 同一種寫法的 API 與模組規格
+- 每份規格的來源證據與輸出結果
+- 集中處理的待確認項目，而不是模型補出的答案
+- 可中斷、可續跑的批次狀態
 
-優先驗證 **整個程式庫 → 批量規格產出**。成功標準是處理 10–50 個模組時，比逐個交給 AI 節省至少一半的人工作業時間，同時維持格式一致、來源可追溯，且沒有漏掉任何項目。M1 已完成可操作的工程原型；真實模型輸出品質與使用者節省時間仍待用真實程式庫量測。
+目前的 M1 原型支援 TypeScript／JavaScript，並保留 M0 的非破壞式文件整理流程。
 
-- [產品路線圖](docs/ROADMAP.zh-TW.md)：使用者、階段、驗收指標與停止條件。
-- [實作狀態](docs/IMPLEMENTATION-STATUS.zh-TW.md)：GPT-5.6 Terra 工作包與交付紀錄。
-- [驗證紀錄](docs/VALIDATION.zh-TW.md)：測試、真實檔案副本與 DSH 相容範圍。
-- [競品與選擇依據](docs/research/COMPETITORS.zh-TW.md)：為何選擇樣本先行的批次工作。
-- [DSH 版本差異](docs/research/UPSTREAM.zh-TW.md)：本機 rc.5 與新版的差異。
-- [KeepGate 經驗](docs/research/KEEPGATE-LESSONS.zh-TW.md)：保留可追溯與真實結果，降低治理負擔。
+## 60 秒試用
 
-## 本機試用
-
-需要 Node.js 22 以上與 npm。以下指令只會在專案忽略的 `.local` 目錄建立合成資料：
+需要 Node.js 22 以上與 npm。
 
 ```powershell
 cd C:\Users\user\Desktop\dsh-ditto
 npm install
-npm run build
-npm run demo
-```
-
-終端會印出一次性的 loopback 網址。開啟後可修改目的地、更新檢視、建立副本、儲存及載入做法。若要使用自己的資料，請指定新的輸出與狀態資料夾：
-
-```powershell
-npx tsx src/cli.ts serve <來源資料夾> <新的輸出資料夾> <本機狀態資料夾>
-```
-
-程式碼轉規格流程可用以下合成資料驗收。此命令使用明確標示的固定示範生成器，只用來檢查流程與安全閘門，不代表模型品質：
-
-```powershell
 npm run demo:spec
 ```
 
-在實際 DSH 工作階段中，agent 依序使用 `ditto_spec_create`、`ditto_spec_queue`、`ditto_spec_module`、`ditto_spec_submit`、`ditto_spec_review`、`ditto_spec_revise_samples`、`ditto_spec_approve`、`ditto_spec_apply` 與 `ditto_spec_status` 工具。工具本身不直接持有模型金鑰；DSH agent 在正常模型對話流程中讀取證據、提出結構化草稿。
+命令會建立 12 個合成模組並印出本機網址。先核准三份樣本，再生成完整預覽；只有 12 份規格都通過流程檢查後，寫入按鈕才會開啟。
 
-驗證指令：
+這個示範使用固定的測試生成器，用來驗證流程與安全閘門，不代表真實模型的文件品質。
+
+## 在 DSH 中使用
+
+Ditto 讓 DSH agent 在正常模型回合中讀取證據並提交結構化草稿。插件不保存模型金鑰，也不直接替你呼叫模型。
+
+核心工具包含：
+
+`ditto_spec_create` → `ditto_spec_queue` → `ditto_spec_module` → `ditto_spec_submit` → `ditto_spec_review` → `ditto_spec_revise_samples` → `ditto_spec_approve` → `ditto_spec_apply`
+
+## 驗證與目前範圍
 
 ```powershell
 npm test
+npm run build
 npm run smoke:dsh
 ```
 
-本專案採用 [MIT License](LICENSE)。目前尚未發布 npm 套件、安裝進使用者日常 DSH profile 或完成市場驗證。公開發行前仍需在 Node 24 以完整 DSH CLI profile 驗收，並以真實程式庫和模型量測結果。
+目前已通過 25 項自動測試、TypeScript 建置、DSH 元件宿主 smoke，以及本機瀏覽器的完整預覽閘門驗收。完整證據在[驗證紀錄](docs/VALIDATION.zh-TW.md)。
+
+這是本機開發者原型。完整 DSH CLI profile 仍需在 Node 24 驗收，真實模型處理真實程式庫的品質與時間節省也尚待量測。
+
+## 延伸閱讀
+
+- [產品路線圖](docs/ROADMAP.zh-TW.md)
+- [M1 工程合約](docs/M1-CONTRACT.md)
+- [M1 評估方法](docs/M1-EVALUATION.zh-TW.md)
+- [實作狀態](docs/IMPLEMENTATION-STATUS.zh-TW.md)
+- [驗證紀錄](docs/VALIDATION.zh-TW.md)
+
+## License
+
+[MIT](LICENSE)
