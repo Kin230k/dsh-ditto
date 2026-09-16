@@ -18,6 +18,16 @@ There is no need to type `use Ditto` or remember tool names. Tell DSH what you w
 
 Requests like these load the Ditto Skill. Ordinary questions, one-file edits, and an explicit request not to use Ditto do not.
 
+## With and without Ditto
+
+| Situation | Without Ditto | With Ditto |
+| --- | --- | --- |
+| Specifications for 20 modules | The agent works file by file; prompts must keep format and coverage consistent | It identifies batch specification work and calibrates the standard on three representative samples |
+| One rule across a folder | The user must split the work, track exceptions, and check for omissions | Ditto prepares a full preview and exception list before the approved batch runs |
+| Source evidence | Evidence depends on each individual conversation | Specification claims link to source files and line ranges; unsupported content is marked for review |
+| Writing results | A model can edit before the whole scope has been reviewed | Documentation and file operations remain behind sample or preview approval gates |
+| Resuming work | The user must reconstruct what finished and what remains | Durable batch state lets the agent reopen, review, and continue the same batch |
+
 ## Why not just send code to AI?
 
 AI handles one file quickly. Larger codebases create a different job: repeat the formatting rules, keep terminology consistent, find missing modules, and review every output. Ditto makes that work visible:
