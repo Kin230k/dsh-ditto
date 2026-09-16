@@ -93,4 +93,4 @@ npm test
 npm run smoke:dsh
 ```
 
-目前尚未發布 npm 套件、安裝進使用者日常 DSH profile 或完成市場驗證。公開發行前仍需在 Node 24 以完整 DSH CLI profile 驗收、以真實程式庫和模型量測結果，並選定授權條款。
+本專案採用 [MIT License](LICENSE)。目前尚未發布 npm 套件、安裝進使用者日常 DSH profile 或完成市場驗證。公開發行前仍需在 Node 24 以完整 DSH CLI profile 驗收，並以真實程式庫和模型量測結果。
