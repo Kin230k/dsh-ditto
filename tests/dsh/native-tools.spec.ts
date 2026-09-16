@@ -3,6 +3,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -12,6 +13,24 @@ const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 describe('DSH Ditto native tools on published Cordis + ToolRuntime', () => {
+  it('registers a lazily loaded model-invocable batch-work skill', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-ditto-routing-'))
+    roots.push(root)
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry, {})
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, { mode: 'native' })
+    await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: join(root, '.dsh-ditto-state') })
+
+    expect(await ctx.skills.list()).toContainEqual(expect.objectContaining({
+      name: 'ditto-batch-work',
+      invocation: { modelInvocable: true, userInvocable: true },
+    }))
+    expect(await ctx.skills.get('ditto-batch-work')).toMatchObject({
+      content: expect.stringContaining('ditto_spec_create'),
+    })
+  })
+
   it('registers through the real ToolRuntime, obeys pre-dispatch denials, and only copies after an exact review', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-ditto-native-'))
     roots.push(root)
@@ -22,6 +41,7 @@ describe('DSH Ditto native tools on published Cordis + ToolRuntime', () => {
     await writeFile(join(source, 'invoice.txt'), 'unchanged source', { encoding: 'utf8' })
 
     const ctx = new Context()
+    await ctx.plugin(SkillRegistry, {})
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, { mode: 'native' })
     await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, maxItems: 20, resultItems: 10 })
@@ -83,6 +103,7 @@ describe('DSH Ditto native tools on published Cordis + ToolRuntime', () => {
     for (let index = 1; index <= 12; index++) await writeFile(join(source, `module-${index}.ts`), `export function module${index}(value: string) { return value }\n`, 'utf8')
 
     const ctx = new Context()
+    await ctx.plugin(SkillRegistry, {})
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, { mode: 'native' })
     await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, resultItems: 20, evidenceItems: 4 })
@@ -146,6 +167,7 @@ describe('DSH Ditto native tools on published Cordis + ToolRuntime', () => {
     await writeFile(join(source, 'one.txt'), 'one', { encoding: 'utf8' })
     await writeFile(join(state, 'old-plan.json'), 'not a source file', { encoding: 'utf8' })
     const ctx = new Context()
+    await ctx.plugin(SkillRegistry, {})
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, { mode: 'native' })
     await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state })

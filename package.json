@@ -28,6 +28,7 @@
     "@deepseek-ai/dsh-tools": "0.1.5-rc.1"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-skill": "^0.1.5-rc.1",
     "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",

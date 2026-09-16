@@ -46,7 +46,9 @@ The demo uses a deterministic test generator. It validates the workflow and safe
 
 ## Using Ditto with DSH
 
-Ditto lets a DSH agent read evidence and submit structured drafts during its normal model turn. The plugin does not store provider keys or directly invoke a model.
+Ditto is a native DSH Skill. Users describe the outcome normally and never need to remember tool names. When a request covers a folder, several modules, a repeatable rule, or a review-then-batch workflow, the agent selects Ditto from its skill catalog and loads the detailed workflow. Ordinary one-file edits and questions do not trigger it.
+
+For example: “Create consistent API specifications for every module in this project, then show me three samples before processing the rest.” The agent loads Ditto, creates the batch, prepares the samples, and waits for approval. The plugin does not store provider keys or call a model directly.
 
 Core tools:
 
@@ -60,9 +62,9 @@ npm run build
 npm run smoke:dsh
 ```
 
-The project currently passes 25 automated tests, TypeScript compilation, a DSH component-host smoke test, and local browser verification of the complete-preview gate. Read the [validation record](docs/VALIDATION.zh-TW.md) for the evidence.
+The project currently passes 26 automated tests, TypeScript compilation, a DSH component-host smoke test, and local browser verification of the complete-preview gate. Read the [validation record](docs/VALIDATION.zh-TW.md) for the evidence.
 
-This is a local developer prototype. The complete DSH CLI profile still needs Node 24 validation, and real-model quality and time savings still need measurement on real repositories.
+This is a local developer prototype. Real-model quality and time savings still need measurement on real repositories.
 
 ## Further reading
 

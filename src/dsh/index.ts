@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-skill'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import {
   applyPlan,
@@ -93,6 +94,28 @@ interface SpecBatchView {
 /** In-process serialization only. Separate DSH processes must use separate state roots. */
 const planMutations = new Map<string, Promise<void>>()
 
+/**
+ * A lazily loaded DSH skill. The model sees only the short routing summary in
+ * its catalog; the detailed workflow becomes context only after it selects the
+ * skill for an eligible batch task.
+ */
+const DITTO_BATCH_SKILL = {
+  name: 'ditto-batch-work',
+  description: 'Reviewed batch processing for repeated code-to-specification or file-organisation work.',
+  whenToUse: 'Use when a request covers a codebase, folder, several similar files, or a repeatable operation that needs review before a batch write.',
+  source: 'custom' as const,
+  invocation: { modelInvocable: true, userInvocable: true },
+  content: `# Ditto batch work
+
+Use this skill for a multi-file or repeatable task. Do not ask the user to name Ditto or native tools.
+
+For code-to-specification work, call ditto_spec_create first. Inspect the queued modules, create three representative sample specifications, and show them for review. Do not call ditto_spec_apply until the user explicitly approves the samples.
+
+For repeatable file copy or reorganisation, call ditto_preview first. Show the plan and exceptions. Do not call ditto_apply until the user explicitly approves the reviewed plan.
+
+Never use this skill for a one-file edit or ordinary question. If the user explicitly says not to use Ditto, follow that request.`,
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     dshDitto: DshDitto
@@ -101,7 +124,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Native DSH tools for the reviewed-copy M0 workflow. */
 export class DshDitto extends Service<DshDittoConfig> {
-  static inject = ['tools']
+  static inject = ['tools', 'skills']
   static provide = 'dshDitto'
 
   readonly config: ResolvedConfig
@@ -109,6 +132,7 @@ export class DshDitto extends Service<DshDittoConfig> {
   constructor(ctx: Context, config: DshDittoConfig = {}) {
     super(ctx, 'dshDitto')
     this.config = resolveConfig(config)
+    ctx.skills.register(DITTO_BATCH_SKILL)
     // ToolRuntime registers into the current Cordis fiber, so these effects are
     // removed automatically if this bundle is unloaded or its patch reloads.
     ctx.tools.register(previewTool(this))
