@@ -2,11 +2,21 @@
 
 [English](README.en.md) · [繁體中文](README.md)
 
-> **Shape three examples your way, then bring the same standard to the whole codebase.**
+> **When work repeats, switch automatically to a batch workflow you can review.**
 
-DSH Ditto turns one-file-at-a-time AI conversations into a reviewable batch workflow. It selects three structurally different modules from a TypeScript or JavaScript repository, lets you edit their specification examples directly, then applies the approved style to the remaining modules. Each claim links back to a source file and line range.
+DSH Ditto is a native DSH Skill for repeated work. Users describe the outcome as usual; when an agent detects a folder, several modules, a repeated format, or a review-then-batch request, it loads Ditto. Ditto starts with three structurally different examples so the user can set the standard, then applies the approved rule to the remaining work.
 
-It is built for teams turning 10–50 modules into consistent API documentation, module references, test-case checklists, or pre-refactor behavior specifications.
+It is built for turning 10–50 modules into consistent API documentation, module references, test-case checklists, or pre-refactor behavior specifications. It can also organize a batch of files under one reviewed rule.
+
+## Describe the outcome normally
+
+There is no need to type `use Ditto` or remember tool names. Tell DSH what you want:
+
+> Create consistent API specifications for every module in this project, then show me three samples before processing the rest.
+
+> Organize every file in this folder using this naming rule. Show a full preview and its exceptions first.
+
+Requests like these load the Ditto Skill. Ordinary questions, one-file edits, and an explicit request not to use Ditto do not.
 
 ## Why not just send code to AI?
 
@@ -46,13 +56,7 @@ The demo uses a deterministic test generator. It validates the workflow and safe
 
 ## Using Ditto with DSH
 
-Ditto is a native DSH Skill. Users describe the outcome normally and never need to remember tool names. When a request covers a folder, several modules, a repeatable rule, or a review-then-batch workflow, the agent selects Ditto from its skill catalog and loads the detailed workflow. Ordinary one-file edits and questions do not trigger it.
-
-For example: “Create consistent API specifications for every module in this project, then show me three samples before processing the rest.” The agent loads Ditto, creates the batch, prepares the samples, and waits for approval. The plugin does not store provider keys or call a model directly.
-
-Core tools:
-
-`ditto_spec_create` → `ditto_spec_queue` → `ditto_spec_module` → `ditto_spec_submit` → `ditto_spec_review` → `ditto_spec_revise_samples` → `ditto_spec_approve` → `ditto_spec_apply`
+Ditto does not store provider keys or call a model directly. Once a DSH agent selects the Skill, it provides safe batch planning, sample review, source evidence, and write tools that remain locked until approval.
 
 ## Validation and scope
 
