@@ -1,0 +1,39 @@
+/**
+ * Facts about each native tool that the JSON schema cannot express: which
+ * workflow stage it belongs to, whether it writes, what approval it needs, and
+ * how it fails. `scripts/gen-tools-doc.ts` merges this catalog with the live
+ * schemas to produce docs/TOOLS.md, and a test asserts the catalog matches the
+ * registered tools exactly, so the reference cannot drift from the code.
+ */
+export interface ToolFact {
+  name: string
+  workflow: 'files' | 'spec'
+  stage: string
+  /** One sentence for humans. */
+  purpose: string
+  /** What the tool writes, if anything. */
+  writes: string
+  /** Human approval requirement before the call. */
+  approval: string
+  /** Typical failure cases and what the agent should do. */
+  failures: string
+}
+
+export const TOOL_CATALOG: readonly ToolFact[] = [
+  { name: 'ditto_preview', workflow: 'files', stage: 'Discover / preview', purpose: 'Scan a source folder and propose organised destination names for copies.', writes: 'Durable plan metadata under stateRoot only; no source or output files.', approval: 'None. Read-only preview.', failures: 'Folders outside the workspace, output inside the source, symlinks or junctions in the batch, more files than max_items, colliding destinations.' },
+  { name: 'ditto_revise', workflow: 'files', stage: 'Review / edit', purpose: 'Change proposed destination names on a reviewed plan; produces a new revision and digest.', writes: 'Durable plan metadata only.', approval: 'None. Only submit edits the user asked for.', failures: 'Stale revision (call ditto_status), unknown item ids, items that already have a result, extension changes, case-insensitive collisions, unsafe segments.' },
+  { name: 'ditto_apply', workflow: 'files', stage: 'Apply', purpose: 'Create the reviewed copies in the new output folder; originals stay untouched.', writes: 'New files under destination_root; per-item statuses in stateRoot. Never overwrites, never touches sources.', approval: 'Explicit user approval of the displayed plan. With approval=host the DSH host prompts the user again before writing.', failures: 'Stale revision/digest, changed source (rejected per item), existing destination (failed per item, never overwritten), host approval rejected/unavailable (nothing written).' },
+  { name: 'ditto_status', workflow: 'files', stage: 'Status / resume', purpose: 'Read the durable plan with actual per-item outcomes and paging.', writes: 'Nothing.', approval: 'None.', failures: 'Unknown plan id, saved plan roots outside the workspace, invalid offset/limit.' },
+  { name: 'ditto_recipe', workflow: 'files', stage: 'Recipe', purpose: 'Save, list, or read declarative naming recipes (no scripts or commands).', writes: 'Recipe JSON under stateRoot when action=save.', approval: 'None.', failures: 'Missing plan_id/name for save, missing recipe_id for get, invalid recipe name.' },
+  { name: 'ditto_spec_create', workflow: 'spec', stage: 'Discover', purpose: 'Scan a repository folder, select three representative sample modules, and start a durable batch.', writes: 'Batch metadata under stateRoot only.', approval: 'None. Read-only scan.', failures: 'Fewer than 4 or more than 50 modules, output inside the source, folders outside the workspace, output overlapping stateRoot.' },
+  { name: 'ditto_spec_queue', workflow: 'spec', stage: 'Samples / remaining', purpose: 'List pending modules for the samples phase, or for the remaining phase once the samples are approved.', writes: 'Nothing.', approval: 'None (phase=remaining is locked until ditto_spec_approve).', failures: 'Remaining requested before approval, stale batch (call ditto_spec_status), invalid paging.' },
+  { name: 'ditto_spec_module', workflow: 'spec', stage: 'Evidence', purpose: 'Return line-numbered evidence chunks and deterministic facts for one module so the agent can draft its specification.', writes: 'Nothing.', approval: 'None.', failures: 'Module not pending, remaining module requested before approval, invalid evidence paging.' },
+  { name: 'ditto_spec_submit', workflow: 'spec', stage: 'Draft', purpose: 'Validate one JSON draft (every fact must cite returned evidence ids) and render it to Markdown for review.', writes: 'Batch metadata only; no Markdown files.', approval: 'None.', failures: 'Unknown or forged evidence ids, unsupported fields, empty draft, stale revision/digest, module not pending, remaining module before approval.' },
+  { name: 'ditto_spec_review', workflow: 'spec', stage: 'Review', purpose: 'Read one rendered specification with its evidence links and open questions for the user to review.', writes: 'Nothing.', approval: 'None.', failures: 'Module has no rendered specification yet.' },
+  { name: 'ditto_spec_revise_samples', workflow: 'spec', stage: 'Review / edit', purpose: 'Save user edits to the three samples and/or the batch instructions; clears prior approval and held-out drafts.', writes: 'Batch metadata only.', approval: 'None. Only submit edits the user asked for.', failures: 'Edits for non-sample modules, a factual line without an [ev_…] citation, forged citations, oversized Markdown, batch already written, stale identity.' },
+  { name: 'ditto_spec_approve', workflow: 'spec', stage: 'Approve', purpose: "Record the user's approval of all three samples as the versioned recipe that unlocks the remaining modules.", writes: 'Batch metadata only (new revision and digest).', approval: 'Explicit user approval of the three rendered samples.', failures: 'Samples not all rendered, batch already written, stale identity.' },
+  { name: 'ditto_spec_apply', workflow: 'spec', stage: 'Apply', purpose: 'Write every reviewed specification into the output folder after re-checking source hashes and destinations.', writes: 'New Markdown files under output_root; per-module statuses in stateRoot. Never overwrites, never touches sources.', approval: 'Explicit user approval of the full batch preview. With approval=host the DSH host prompts the user again before writing.', failures: 'Preview incomplete, stale revision/digest, changed source (rejected before any write), existing destination, traversal or symlink escape, host approval rejected/unavailable (nothing written).' },
+  { name: 'ditto_spec_status', workflow: 'spec', stage: 'Status / resume', purpose: 'Read the durable batch with discovery accounting, per-module outcomes, and paging.', writes: 'Nothing.', approval: 'None.', failures: 'Unknown batch id, saved batch roots outside the workspace, invalid paging.' },
+]
+
+export const TOOL_NAMES: readonly string[] = TOOL_CATALOG.map(tool => tool.name)
