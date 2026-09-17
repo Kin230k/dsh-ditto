@@ -1,4 +1,4 @@
-import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -62,13 +62,18 @@ describe('reviewed file copies', () => {
     expect(await readFile(join(paths.output, 'other', '.keep'), 'utf8')).toBe('keep')
   })
 
-  it('rejects an output-root junction before it can create files through it', async () => {
+  it('canonicalises an output root given through a junction, and rejects a junction introduced after the preview', async () => {
     if (process.platform !== 'win32') return
     const paths = await fixture({ 'notes.txt': 'note' }); const outside = join(paths.root, 'outside'); const junction = join(paths.root, 'output-link')
     await mkdir(outside); await symlink(outside, junction, 'junction')
-    const plan = await createPlan({ sourceRoot: paths.source, destinationRoot: join(junction, 'new-output'), recipe: defaultRecipe() }); await savePlan(plan, paths.state)
+    // A junction that exists at preview time is resolved to its real location, so the plan records where files will really go.
+    const through = await createPlan({ sourceRoot: paths.source, destinationRoot: join(junction, 'new-output'), recipe: defaultRecipe() })
+    expect(through.destinationRoot.toLowerCase()).toBe(join(await realpath(outside), 'new-output').toLowerCase())
+    // A junction that appears between preview and apply is refused before anything is created through it.
+    const plan = await createPlan({ sourceRoot: paths.source, destinationRoot: join(paths.root, 'later', 'new-output'), recipe: defaultRecipe() }); await savePlan(plan, paths.state)
+    const elsewhere = join(paths.root, 'elsewhere'); await mkdir(elsewhere); await symlink(elsewhere, join(paths.root, 'later'), 'junction')
     await expect(applyPlan(plan, { id: plan.id, revision: plan.revision, digest: plan.digest }, paths.state)).rejects.toThrow('symlink or junction ancestor')
-    await expect(readFile(join(outside, 'new-output', 'text', 'notes.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(elsewhere, 'new-output', 'text', 'notes.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('resumes recorded work and treats an unrecorded existing output as a non-overwrite failure', async () => {

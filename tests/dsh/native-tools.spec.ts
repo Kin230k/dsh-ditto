@@ -1,5 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -104,6 +103,14 @@ describe('Ditto native tools on the published Cordis + ToolRuntime', () => {
 
     const escaped = await call(ctx, 'ditto_preview', { source_root: join(root, '..'), destination_root: join(root, 'x') })
     expect(escaped.isError).toBe(true)
+    if (process.platform === 'win32') {
+      // A junction inside the workspace that points outside is resolved before the boundary check, so it cannot smuggle writes out.
+      const outside = await mkdtemp(join(tmpdir(), 'dsh-ditto-outside-')); roots.push(outside)
+      await symlink(outside, join(root, 'escape-link'), 'junction')
+      const viaJunction = await call(ctx, 'ditto_preview', { source_root: source, destination_root: join(root, 'escape-link', 'out') })
+      expect(viaJunction.isError).toBe(true)
+      expect(viaJunction.isError && viaJunction.error.message).toContain('inside the Ditto workspace')
+    }
     await ctx.fiber.dispose()
   })
 

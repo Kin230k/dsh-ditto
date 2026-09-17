@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, readdir, realpath } from 'node:fs/promises'
-import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { extname, join, relative } from 'node:path'
+import { canonicalPath, samePath, within } from './paths.js'
 import { destinationFor, isSafeId, safeRelative, stableDigest, validateDestinationExtension, validateRecipe } from './recipe.js'
 import type { CreatePlanOptions, Plan, PlanEdit, PlanItem, PlanSummary } from './types.js'
 
@@ -9,10 +10,10 @@ export async function createPlan(options: CreatePlanOptions): Promise<Plan> {
   if (!options || !Number.isInteger(options.maxFiles ?? 1_000) || (options.maxFiles ?? 1_000) < 1 || (options.maxFiles ?? 1_000) > 10_000) throw new Error('maxFiles must be between 1 and 10,000')
   validateRecipe(options.recipe)
   const sourceRoot = await realpath(options.sourceRoot)
-  const destinationRoot = resolve(options.destinationRoot)
+  const destinationRoot = await canonicalPath(options.destinationRoot)
   if (within(sourceRoot, destinationRoot, true) || samePath(sourceRoot, destinationRoot)) throw new Error('Output folder must be outside the source folder')
   if (options.excludedRoots !== undefined && (!Array.isArray(options.excludedRoots) || options.excludedRoots.length > 20 || options.excludedRoots.some(path => typeof path !== 'string'))) throw new Error('Invalid excluded roots')
-  const excludedRoots = (options.excludedRoots ?? []).map(path => resolve(path)).filter(path => within(sourceRoot, path, true))
+  const excludedRoots = (await Promise.all((options.excludedRoots ?? []).map(path => canonicalPath(path)))).filter(path => within(sourceRoot, path, true))
   const files = await collectFiles(sourceRoot, options.maxFiles ?? 1_000, excludedRoots)
   const ids = new Set<string>()
   const items: PlanItem[] = await Promise.all(files.map(async (source, index) => {
@@ -72,12 +73,7 @@ export async function sha256(file: string): Promise<string> {
   })
 }
 
-export function within(root: string, target: string, includeRoot = false): boolean {
-  const path = relative(resolve(root), resolve(target))
-  return (includeRoot && path === '') || (path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !path.startsWith('../') && !isAbsolute(path))
-}
-
-export function samePath(a: string, b: string): boolean { return process.platform === 'win32' ? resolve(a).toLocaleLowerCase('en-US') === resolve(b).toLocaleLowerCase('en-US') : resolve(a) === resolve(b) }
+export { within, samePath } from './paths.js'
 
 function extensionFor(relativePath: string): string { return extname(relativePath) }
 

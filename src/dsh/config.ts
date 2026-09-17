@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { within } from '../core/plan.js'
+import { canonicalPathSync, within } from '../core/paths.js'
 
 /**
  * Configuration that the profile owner, rather than the model, supplies.
@@ -36,9 +36,10 @@ export interface ResolvedConfig {
 export const DEFAULT_CONFIG = { stateRoot: '.dsh-ditto', approval: 'host', maxItems: 200, resultItems: 25, evidenceItems: 20 } as const
 
 export function resolveConfig(config: DshDittoConfig): ResolvedConfig {
-  const workspaceRoot = resolve(config.workspaceRoot ?? process.cwd())
+  // Canonical (native realpath, Windows short names expanded) so every later boundary comparison is apples to apples.
+  const workspaceRoot = canonicalPathSync(config.workspaceRoot ?? process.cwd())
   // A relative stateRoot is anchored to the workspace, not to the process working directory.
-  const stateRoot = resolve(workspaceRoot, config.stateRoot ?? DEFAULT_CONFIG.stateRoot)
+  const stateRoot = canonicalPathSync(resolve(workspaceRoot, config.stateRoot ?? DEFAULT_CONFIG.stateRoot))
   if (!within(workspaceRoot, stateRoot, true)) throw new Error('Ditto stateRoot must stay inside workspaceRoot')
   const approval = config.approval ?? DEFAULT_CONFIG.approval
   if (approval !== 'host' && approval !== 'agent') throw new Error("Ditto approval must be 'host' or 'agent'")

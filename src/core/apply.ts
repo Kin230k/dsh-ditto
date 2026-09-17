@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { copyFile, lstat, mkdir, realpath, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { assertNoLinkAncestor } from './paths.js'
 import { assertNoCollisions, assertPlanShape, samePath, sha256, summarize, within, withDigest } from './plan.js'
 import { safeRelative } from './recipe.js'
 import { loadPlan, savePlan } from './storage.js'
@@ -66,29 +67,11 @@ async function safeExistingSource(source: string, sourceRoot: string): Promise<s
 
 async function prepareDestinationRoot(root: string): Promise<string> {
   const expected = resolve(root)
-  await assertExistingAncestorsAreReal(expected)
+  await assertNoLinkAncestor(expected, 'Output root has a symlink or junction ancestor')
   await mkdir(expected, { recursive: true })
-  const actual = await realpath(expected)
   const details = await lstat(expected)
-  if (!details.isDirectory() || details.isSymbolicLink() || !samePath(actual, expected)) throw new Error('Output root is a symlink, junction, or non-directory')
-  return actual
-}
-
-async function assertExistingAncestorsAreReal(target: string): Promise<void> {
-  let cursor = target
-  while (true) {
-    try {
-      const details = await lstat(cursor)
-      const actual = await realpath(cursor)
-      if (!details.isDirectory() || details.isSymbolicLink() || !samePath(actual, cursor)) throw new Error('Output root has a symlink or junction ancestor')
-      return
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      const parent = dirname(cursor)
-      if (parent === cursor) throw new Error('Output root has no accessible parent')
-      cursor = parent
-    }
-  }
+  if (!details.isDirectory() || details.isSymbolicLink()) throw new Error('Output root is a symlink, junction, or non-directory')
+  return await realpath(expected)
 }
 
 async function safeOutput(destination: string, destinationRoot: string): Promise<string> {

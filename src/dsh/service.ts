@@ -24,6 +24,7 @@ import {
   submitSpecDraft,
   type SpecBatch,
 } from '../core/index.js'
+import { canonicalPath } from '../core/paths.js'
 import { insideWorkspace, overlaps, resolveConfig, type DshDittoConfig, type ResolvedConfig } from './config.js'
 import { dittoSkill } from './skill.js'
 import { fileTools } from './tools/files.js'
@@ -264,7 +265,7 @@ export class DshDitto extends Service<DshDittoConfig> {
   private async checkedRoots(sourceInput: string, destinationInput: string): Promise<{ sourceRoot: string; destinationRoot: string }> {
     if (typeof sourceInput !== 'string' || typeof destinationInput !== 'string') throw new Error('Source and destination folders are required')
     const sourceRoot = await realpath(resolve(this.config.workspaceRoot, sourceInput))
-    const destinationRoot = resolve(this.config.workspaceRoot, destinationInput)
+    const destinationRoot = await canonicalPath(resolve(this.config.workspaceRoot, destinationInput))
     if (!insideWorkspace(this.config.workspaceRoot, sourceRoot) || !insideWorkspace(this.config.workspaceRoot, destinationRoot)) throw new Error(`Folders must stay inside the Ditto workspace (${this.config.workspaceRoot})`)
     if (overlaps(destinationRoot, this.config.stateRoot)) throw new Error('The output folder must not include Ditto state metadata; choose a separate output folder')
     return { sourceRoot, destinationRoot }
