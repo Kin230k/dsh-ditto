@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="388" viewBox="0 0 960 388" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+  <title>dsh-ditto demo --headless: discover 16 modules, review 3 samples, approve, preview everything, apply 16/16 with 0 source files modified</title>
+  <rect width="960" height="388" rx="12" fill="#0f172a"/>
+  <rect width="960" height="36" rx="12" fill="#1e293b"/>
+  <rect y="24" width="960" height="12" fill="#1e293b"/>
+  <circle cx="20" cy="18" r="6" fill="#ef4444"/><circle cx="40" cy="18" r="6" fill="#f59e0b"/><circle cx="60" cy="18" r="6" fill="#22c55e"/>
+  <text x="480" y="23" fill="#94a3b8" text-anchor="middle" font-size="12">Ditto — Review a few. Ditto the rest.</text>
+  <text x="20" y="74" fill="#f8fafc" font-weight="600">$ dsh-ditto demo --headless</text>
+  <text x="20" y="98" fill="#94a3b8">Ditto demo — synthetic repository, deterministic generator, no model calls, no API key</text>
+  <text x="20" y="122" fill="#94a3b8">Source  ./source     (16 TypeScript modules)</text>
+  <text x="20" y="146" fill="#94a3b8">Output  ./specifications</text>
+  <text x="20" y="170" fill="#e2e8f0"></text>
+  <text x="20" y="194" fill="#cbd5e1">1. Discover   16 modules in scope · 3 excluded: node_modules, README.md, src/types.d.ts</text>
+  <text x="20" y="218" fill="#cbd5e1">2. Samples    3 representative modules: src/index.ts, src/services/billing.ts, src/utils/format.ts</text>
+  <text x="20" y="242" fill="#cbd5e1">3. Review     edit the three samples until they look right (the headless demo accepts them)</text>
+  <text x="20" y="266" fill="#cbd5e1">4. Approve    recipe revision 2 · digest b87eddfc1269…</text>
+  <text x="20" y="290" fill="#fbbf24" font-weight="600">5. Preview    16/16 specifications rendered · 1 needs confirmation: src/routes/webhooks.ts</text>
+  <text x="20" y="314" fill="#4ade80" font-weight="600">6. Apply      16/16 written · 0 failed · 0 source files modified (hashes re-verified)</text>
+  <text x="20" y="338" fill="#e2e8f0"></text>
+  <text x="20" y="362" fill="#94a3b8">Specifications: ./specifications</text>
+</svg>
