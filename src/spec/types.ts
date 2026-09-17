@@ -1,4 +1,6 @@
-/** M1's persisted, non-executable code-to-specification batch format. */
+import type { LanguageAdapter } from './languages/types.js'
+
+/** Ditto's persisted, non-executable code-to-specification batch format. */
 export type SpecItemStatus = 'pending' | 'sample-ready' | 'approved' | 'ready' | 'applied' | 'needs-review' | 'rejected' | 'failed'
 
 export interface EvidenceChunk {
@@ -38,6 +40,8 @@ export interface SpecModule {
   id: string
   source: string
   relativePath: string
+  /** Language adapter id that claimed this module. */
+  language: string
   sourceHash: string
   outputPath: string
   evidence: EvidenceChunk[]
@@ -60,7 +64,7 @@ export interface SpecRecipe {
 }
 
 export interface SpecBatchSummary { total: number; pending: number; sampleReady: number; approved: number; ready: number; applied: number; needsReview: number; rejected: number; failed: number }
-export interface SpecExclusion { relativePath: string; reason: 'ignored-folder' | 'state-folder' | 'non-code' | 'declaration-file' | 'too-large' | 'symlink' }
+export interface SpecExclusion { relativePath: string; reason: 'ignored-folder' | 'state-folder' | 'non-code' | 'declaration-file' | 'generated' | 'too-large' | 'symlink' }
 export interface SpecDiscovery { inScope: number; excludedTotal: number; excludedByReason: Record<SpecExclusion['reason'], number>; excluded: SpecExclusion[] }
 
 export interface SpecBatch {
@@ -78,6 +82,11 @@ export interface SpecBatch {
   summary: SpecBatchSummary
 }
 
+/** Smallest batch that still has something to "ditto": three samples plus at least one remaining module. */
+export const MIN_SPEC_MODULES = 4
+/** Upper bound for one reviewed batch. Larger repositories are processed as several batches. */
+export const MAX_SPEC_MODULES = 50
+
 export interface CreateSpecBatchOptions {
   sourceRoot: string
   outputRoot: string
@@ -85,10 +94,12 @@ export interface CreateSpecBatchOptions {
   instructions?: string
   minModules?: number
   maxModules?: number
+  /** Language adapters to discover with; defaults to the adapters shipped with Ditto. */
+  adapters?: readonly LanguageAdapter[]
 }
 
 export interface SpecGenerationRequest {
-  module: Pick<SpecModule, 'id' | 'relativePath' | 'sourceHash' | 'evidence' | 'facts'>
+  module: Pick<SpecModule, 'id' | 'relativePath' | 'language' | 'sourceHash' | 'evidence' | 'facts'>
   instructions: string
   approvedSamples: Array<{ moduleId: string; markdown: string }>
 }

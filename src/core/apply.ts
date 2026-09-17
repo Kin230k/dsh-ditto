@@ -37,17 +37,17 @@ export async function applyPlan(submitted: Plan, expected: ApplyExpectation, sta
 async function applyItem(item: PlanItem, sourceRoot: string, destinationRoot: string): Promise<PlanItem> {
   try {
     const source = await safeExistingSource(item.source, sourceRoot)
-    if (await sha256(source) !== item.sourceHash) return { ...item, status: 'rejected', reason: '來源檔案在預覽後已變更，未建立副本。' }
+    if (await sha256(source) !== item.sourceHash) return { ...item, status: 'rejected', reason: 'The source file changed after the preview; no copy was created.' }
     const destination = await safeOutput(item.destination, destinationRoot)
-    if (await exists(destination)) return { ...item, status: 'failed', reason: '目的地已存在；為了避免覆寫，未建立副本。若這是中斷前的副本，請先檢查它。' }
+    if (await exists(destination)) return { ...item, status: 'failed', reason: 'The destination already exists; no copy was created to avoid overwriting it. If it is a copy from an interrupted run, inspect it first.' }
     const temporary = join(dirname(destination), `.dsh-ditto-${item.id}-${randomUUID()}.tmp`)
     try {
       await copyFile(source, temporary, constants.COPYFILE_EXCL)
       const sourceAfter = await sha256(source)
       const temporaryHash = await sha256(temporary)
-      if (sourceAfter !== item.sourceHash || temporaryHash !== item.sourceHash) return { ...item, status: 'rejected', reason: '複製期間來源變更或輸出驗證失敗，未建立副本。' }
+      if (sourceAfter !== item.sourceHash || temporaryHash !== item.sourceHash) return { ...item, status: 'rejected', reason: 'The source changed during copying or the output failed verification; no copy was created.' }
       await copyFile(temporary, destination, constants.COPYFILE_EXCL)
-      if (await sha256(destination) !== item.sourceHash) return { ...item, status: 'failed', reason: '輸出驗證失敗；請檢查目的地後再繼續。' }
+      if (await sha256(destination) !== item.sourceHash) return { ...item, status: 'failed', reason: 'Output verification failed; inspect the destination before continuing.' }
       return { ...item, status: 'applied' }
     } finally { await rm(temporary, { force: true }).catch(() => undefined) }
   } catch (error: unknown) {
