@@ -18,12 +18,12 @@ const browserBatch = (): SpecBatchLike => ({
   excluded: [{ relativePath: 'node_modules', reason: 'ignored-folder' }], summary: { excluded: 1 },
 })
 
-describe('M1 specification workbench', () => {
+describe('specification review page', () => {
   it('renders actual sample ids, evidence line links, scan exclusions, and a locked batch action', () => {
     const html = renderSpecWorkbench(browserBatch(), { csrfToken: 'csrf</script>', demo: true })
-    expect(html).toContain('合成／測試生成示範')
+    expect(html).toContain('Synthetic demo')
     expect(html).toContain('id="sample-a"')
-    expect(html).toContain('第 1–3 行')
+    expect(html).toContain('lines 1–3')
     expect(html).toContain('ignored-folder')
     expect(html).toContain('id="generate-button" type="button" disabled')
     expect(html).toContain('/api/spec/approve')
@@ -61,11 +61,11 @@ const fakeGenerator: SpecGenerator = {
   id: 'deterministic-test-generator',
   async generate(request) {
     const evidence = request.module.evidence[0]!
-    return { metadata: { synthetic: 'true' }, draft: { version: 1, moduleId: request.module.id, title: { text: `${request.module.relativePath} 規格`, citations: [evidence.id] }, purpose: { text: '此模組的行為需要依來源證據確認。', citations: [evidence.id] } } }
+    return { metadata: { synthetic: 'true' }, draft: { version: 1, moduleId: request.module.id, title: { text: `${request.module.relativePath} specification`, citations: [evidence.id] }, purpose: { text: 'The behaviour of this module must be confirmed against the source evidence.', citations: [evidence.id] } } }
   },
 }
 
-describe('M1 server flow', () => {
+describe('specification server flow', () => {
   it('blocks generation before approval, changes digest on reviewed samples, then returns per-item apply results', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ditto-spec-ui-')); const source = join(root, 'source'); const output = join(root, 'specs'); const state = join(root, 'state')
     const names = Array.from({ length: 12 }, (_, index) => `module-${String(index + 1).padStart(2, '0')}.ts`)
@@ -79,7 +79,7 @@ describe('M1 server flow', () => {
     const blocked = await fetch(`${server.url}/api/spec/generate`, { method: 'POST', headers, body: JSON.stringify({ revision: initial.batch.revision, digest: initial.batch.digest }) })
     expect(blocked.status).toBe(409)
     const sampleEdits = initial.batch.samples!.map(id => { const item = initial.batch.modules.find(candidate => candidate.id === id)!; return { moduleId: id, markdown: item.renderedMarkdown! } })
-    const revised = await (await fetch(`${server.url}/api/spec/revise`, { method: 'POST', headers, body: JSON.stringify({ revision: initial.batch.revision, sampleEdits, instructions: '測試指示' }) })).json() as { batch: SpecBatchLike }
+    const revised = await (await fetch(`${server.url}/api/spec/revise`, { method: 'POST', headers, body: JSON.stringify({ revision: initial.batch.revision, sampleEdits, instructions: 'Test instructions' }) })).json() as { batch: SpecBatchLike }
     expect(revised.batch.digest).not.toBe(initial.batch.digest)
     expect(revised.batch.modules.filter(item => revised.batch.samples!.includes(item.id)).every(item => item.status === 'sample-ready')).toBe(true)
     const blockedAfterRevision = await fetch(`${server.url}/api/spec/generate`, { method: 'POST', headers, body: JSON.stringify({ revision: revised.batch.revision, digest: revised.batch.digest }) })
@@ -87,13 +87,13 @@ describe('M1 server flow', () => {
     const approved = await (await fetch(`${server.url}/api/spec/approve`, { method: 'POST', headers, body: JSON.stringify({ revision: revised.batch.revision, digest: revised.batch.digest }) })).json() as { batch: SpecBatchLike }
     const premature = await fetch(`${server.url}/api/spec/apply`, { method: 'POST', headers, body: JSON.stringify({ id: approved.batch.id, revision: approved.batch.revision, digest: approved.batch.digest }) })
     expect(premature.status).toBe(409)
-    await expect(premature.json()).resolves.toMatchObject({ error: expect.stringContaining('完整批次預覽尚未完成') })
+    await expect(premature.json()).resolves.toMatchObject({ error: expect.stringContaining('preview is not complete') })
     const firstSample = approved.batch.modules.find(item => item.id === approved.batch.samples![0])!
     const recalibratedEdits = approved.batch.samples!.map(id => {
       const item = approved.batch.modules.find(candidate => candidate.id === id)!
-      return { moduleId: id, markdown: id === firstSample.id ? `${item.renderedMarkdown!.trimEnd()}\n- 重新校準內容 [${item.evidence![0]!.id}]\n` : item.renderedMarkdown! }
+      return { moduleId: id, markdown: id === firstSample.id ? `${item.renderedMarkdown!.trimEnd()}\n- Recalibrated content [${item.evidence![0]!.id}]\n` : item.renderedMarkdown! }
     })
-    const recalibrated = await (await fetch(`${server.url}/api/spec/revise`, { method: 'POST', headers, body: JSON.stringify({ revision: approved.batch.revision, sampleEdits: recalibratedEdits, instructions: '更新後的測試指示' }) })).json() as { batch: SpecBatchLike, samplesApproved: boolean }
+    const recalibrated = await (await fetch(`${server.url}/api/spec/revise`, { method: 'POST', headers, body: JSON.stringify({ revision: approved.batch.revision, sampleEdits: recalibratedEdits, instructions: 'Updated test instructions' }) })).json() as { batch: SpecBatchLike, samplesApproved: boolean }
     expect(recalibrated.samplesApproved).toBe(false)
     expect(recalibrated.batch.modules.filter(item => !recalibrated.batch.samples!.includes(item.id)).every(item => item.status === 'pending' && !item.renderedMarkdown)).toBe(true)
     const blockedAfterRecalibration = await fetch(`${server.url}/api/spec/generate`, { method: 'POST', headers, body: JSON.stringify({ revision: recalibrated.batch.revision, digest: recalibrated.batch.digest }) })
@@ -104,7 +104,7 @@ describe('M1 server flow', () => {
     expect(generated.batch.modules.every(item => Boolean(item.renderedMarkdown))).toBe(true)
     const applied = await (await fetch(`${server.url}/api/spec/apply`, { method: 'POST', headers, body: JSON.stringify({ id: generated.batch.id, revision: generated.batch.revision, digest: generated.batch.digest }) })).json() as { items: Array<{ status: string }> }
     expect(applied.items).toHaveLength(12); expect(applied.items.every(item => item.status === 'applied')).toBe(true)
-    const blockedAfterApply = await fetch(`${server.url}/api/spec/revise`, { method: 'POST', headers, body: JSON.stringify({ revision: generated.batch.revision, sampleEdits: recalibratedEdits, instructions: '寫入後不得更新' }) })
+    const blockedAfterApply = await fetch(`${server.url}/api/spec/revise`, { method: 'POST', headers, body: JSON.stringify({ revision: generated.batch.revision, sampleEdits: recalibratedEdits, instructions: 'No edits after writing' }) })
     expect(blockedAfterApply.status).toBe(409)
     expect(await Promise.all(names.map(name => readFile(join(source, name), 'utf8')))).toEqual(before)
   })
