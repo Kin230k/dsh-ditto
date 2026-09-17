@@ -19,7 +19,7 @@ AI 做一份很快。Ditto 解決的是做 50 份時，你不必盯 50 次。
 掃描 → 審閱 3 份樣本 → 核准 → 預覽全部 → 寫入
 ```
 
-![dsh-ditto demo：掃描 16 個模組、審閱 3 份樣本、核准、預覽全部、寫入 16/16，來源檔案 0 個被修改](docs/assets/demo.svg)
+![dsh-ditto demo：掃描 16 個模組、審閱 3 份樣本、核准、預覽全部、寫入 16/16，來源檔案 0 個被修改](https://raw.githubusercontent.com/darrien1998/dsh-ditto/main/docs/assets/demo.svg)
 
 ## 安裝
 

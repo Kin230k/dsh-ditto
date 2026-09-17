@@ -19,7 +19,7 @@ You describe the batch job the way you always would. Ditto picks a few represent
 Discover → Review 3 samples → Approve → Preview everything → Apply
 ```
 
-![dsh-ditto demo: discover 16 modules, review 3 samples, approve, preview everything, apply 16/16 with 0 source files modified](docs/assets/demo.svg)
+![dsh-ditto demo: discover 16 modules, review 3 samples, approve, preview everything, apply 16/16 with 0 source files modified](https://raw.githubusercontent.com/darrien1998/dsh-ditto/main/docs/assets/demo.svg)
 
 ## Installation
 
