@@ -1,7 +1,7 @@
 {
   "name": "dsh-ditto",
   "version": "0.1.0",
-  "description": "Review a few. Ditto the rest. A review-first batch automation plugin for DeepSeek Harness: sample-first code-to-spec and file organisation with a full preview, explicit approval, and safe apply.",
+  "description": "AI is great at doing one file. Ditto is for doing the same thing to 30 files without babysitting all 30. Review-first batch automation plugin for DeepSeek Harness: 3 reviewed samples → full preview → approve → safe apply.",
   "type": "module",
   "license": "MIT",
   "repository": {
