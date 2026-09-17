@@ -1,0 +1,25 @@
+# Sync with: gh label create/edit, or a labels action. Colours are hex without '#'.
+- name: bug
+  color: d73a4a
+  description: Something does not behave as documented
+- name: enhancement
+  color: a2eeef
+  description: An improvement that keeps Ditto small, safe, and review-first
+- name: good first issue
+  color: 7057ff
+  description: Scoped, documented, and a good way in
+- name: help wanted
+  color: 008672
+  description: Maintainers would welcome a contribution here
+- name: dsh compatibility
+  color: 0e7490
+  description: Installing, loading, or running on a specific DeepSeek Harness version
+- name: language adapter
+  color: fbca04
+  description: New or improved language support for Code → Spec
+- name: ui
+  color: c5def5
+  description: The local review page or a DSH Web integration
+- name: documentation
+  color: 0075ca
+  description: Docs, examples, translations

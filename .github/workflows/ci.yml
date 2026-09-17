@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DITTO_DSH_VERSION: 0.1.5-rc.1
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm run smoke:dsh
+      - run: npm run docs:tools -- --check
+      - run: npm pack --dry-run
+      - run: npm run smoke:tarball
+      - name: Headless demo from the built package
+        run: node dist/cli.js demo --headless
+
+  profile-install:
+    name: real dsh plugin install (DSH ${{ matrix.dsh }})
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh: ['0.1.5-rc.1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install pnpm and the DSH launcher
+        run: |
+          npm install -g pnpm
+          npm install -g @deepseek-ai/dsh@${{ matrix.dsh }}
+          dsh --version
+      - name: dsh plugin add, boot, doctor (isolated DSH_HOME)
+        env:
+          CI: 'true'
+        run: npm run smoke:profile
+
+  canary:
+    name: canary (DSH ${{ matrix.tag }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: [next, alpha]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Point the DSH dev dependencies at the ${{ matrix.tag }} dist-tag
+        id: version
+        run: |
+          node scripts/use-dsh-version.mjs ${{ matrix.tag }}
+          echo "resolved=$(node -p "require('./package.json').devDependencies['@deepseek-ai/dsh-tools']")" >> "$GITHUB_OUTPUT"
+      - run: npm install --no-package-lock --no-audit --no-fund
+      - run: npm run build
+      - run: npm test
+        env:
+          DITTO_DSH_VERSION: ${{ steps.version.outputs.resolved }}
+      - run: npm run smoke:dsh
+        env:
+          DITTO_DSH_VERSION: ${{ steps.version.outputs.resolved }}
+      - run: npm run smoke:tarball
+        env:
+          DITTO_DSH_VERSION: ${{ steps.version.outputs.resolved }}

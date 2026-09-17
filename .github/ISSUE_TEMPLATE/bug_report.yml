@@ -1,0 +1,54 @@
+name: Bug report
+description: Something did not behave as documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you asked for, what Ditto did, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. dsh plugin --profile web add dsh-ditto
+        2. Ask "write specs for every module in src/"
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: Paste the output of `dsh plugin --profile <name> exec dsh-ditto doctor` (or `npx dsh-ditto doctor`).
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: dsh
+    attributes:
+      label: DSH version
+      placeholder: dsh --version
+    validations:
+      required: true
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Workflow
+      options:
+        - Code → Spec
+        - File organisation
+        - Demo / CLI
+        - Installation
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety
+      options:
+        - label: This bug involves a file being written somewhere unexpected, overwritten, or modified. (If so, please also report it privately via the Security tab.)

@@ -1,0 +1,29 @@
+name: Language adapter
+description: Propose or claim a new language for Code → Spec
+labels: ["language adapter", "help wanted"]
+body:
+  - type: input
+    id: language
+    attributes:
+      label: Language and extensions
+      placeholder: Python — .py
+    validations:
+      required: true
+  - type: textarea
+    id: facts
+    attributes:
+      label: What counts as an export and an import
+      description: The adapter extracts exported names, imported specifiers, and the line count from text without executing anything. Describe the constructs you would match.
+    validations:
+      required: true
+  - type: textarea
+    id: exclusions
+    attributes:
+      label: Files to exclude
+      description: Generated files, declaration files, vendored folders — anything the scanner should skip for this language.
+  - type: checkboxes
+    id: claim
+    attributes:
+      label: Status
+      options:
+        - label: I would like to implement this myself (see CONTRIBUTING.md "Adding a language adapter").

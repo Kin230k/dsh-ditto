@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/darrien1998/dsh-ditto/discussions
+    about: Ask how to use Ditto, share results, or float an idea before opening an issue.
+  - name: Security report
+    url: https://github.com/darrien1998/dsh-ditto/security/advisories/new
+    about: A way to write outside the output folder, overwrite a file, bypass approval, or execute source? Report it privately.

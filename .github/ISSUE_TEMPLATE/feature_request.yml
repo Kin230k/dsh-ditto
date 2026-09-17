@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose an improvement that keeps Ditto small, safe, and review-first
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The batch job this would help with
+      description: Describe the repetitive work and where the current workflow falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What would change for the user? Which step of discover → samples → approve → preview → apply does it touch?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Language adapter
+        - Spec template / rendering
+        - Sample selection
+        - Review page / UI
+        - Native tools / skill routing
+        - Documentation
+        - Other
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This does not add background watching, scheduling, script execution, automatic source modification, git automation, telemetry, or key management (see docs/ROADMAP.md "Not planned").
+          required: true
