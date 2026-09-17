@@ -1,58 +1,96 @@
 {
-  "name": "@dsh-ditto/plugin",
+  "name": "dsh-ditto",
   "version": "0.1.0",
-  "private": true,
+  "description": "Review a few. Ditto the rest. A review-first batch automation plugin for DeepSeek Harness: sample-first code-to-spec and file organisation with a full preview, explicit approval, and safe apply.",
   "type": "module",
-  "description": "DSH Ditto: evidence-backed batch code-to-specification and reviewed file batches",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darrien1998/dsh-ditto.git"
+  },
+  "homepage": "https://github.com/darrien1998/dsh-ditto#readme",
+  "bugs": {
+    "url": "https://github.com/darrien1998/dsh-ditto/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "deepseek",
+    "harness",
+    "plugin",
+    "cordis",
+    "agent-skill",
+    "ai-agent",
+    "ai-agents",
+    "developer-tools",
+    "batch-processing",
+    "human-in-the-loop",
+    "code-documentation",
+    "code-to-spec",
+    "review-first",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "dsh-ditto": "./dist/cli.js"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./dsh": "./dist/dsh/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./dsh": {
+      "types": "./dist/dsh/index.d.ts",
+      "default": "./dist/dsh/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "docs",
-    "cordis.patch.yml"
+    "skills",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-TW.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "demo": "tsx src/cli.ts demo",
-    "demo:spec": "tsx src/cli.ts demo-spec",
-    "smoke:dsh": "tsx scripts/dsh-smoke.ts"
-  },
-  "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.1"
-  },
-  "devDependencies": {
-    "@deepseek-ai/dsh-skill": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1",
-    "@types/node": "^22.10.2",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "demo:headless": "tsx src/cli.ts demo --headless",
+    "demo:files": "tsx src/cli.ts demo-files",
+    "doctor": "tsx src/cli.ts doctor",
+    "docs:tools": "tsx scripts/gen-tools-doc.ts",
+    "smoke:dsh": "tsx scripts/dsh-smoke.ts",
+    "smoke:tarball": "node scripts/tarball-smoke.mjs",
+    "smoke:profile": "node scripts/profile-smoke.mjs",
+    "release:check": "npm run build && npm test && npm run smoke:dsh && npm run docs:tools -- --check && npm run smoke:tarball",
+    "prepublishOnly": "npm run build && npm test && npm run docs:tools -- --check"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.1"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0"
   },
-  "overrides": {
-    "@deepseek-ai/dsh-agent": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-brand": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-code-runtime": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-invariants": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-llm": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-scope": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-session": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-session-projection": "0.1.5-rc.1",
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-skill": "0.1.5-rc.1",
     "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-timeout": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1",
     "@deepseek-ai/dsh-user-approval": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-util-crypto": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-util-values": "0.1.5-rc.1"
+    "@types/node": "^22.10.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1"
   },
   "dsh": {
     "bundle": {

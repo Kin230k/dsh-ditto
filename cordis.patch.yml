@@ -1,5 +1,23 @@
+# dsh-ditto bundle patch.
+#
+# `dsh plugin --profile <name> add dsh-ditto` installs this package into the profile
+# and, because package.json declares `dsh.bundle`, adds it to the profile's bundle
+# stack. This layer inserts the Ditto plugin entry into the composed plugin tree.
+#
+# To change the configuration, override the entry by id from the profile's own
+# cordis.patch.yml (a user patch replaces the whole config object, so restate every
+# field you keep):
+#
+#   - id: ditto
+#     config:
+#       stateRoot: .dsh-ditto          # durable batch state; must stay inside workspaceRoot
+#       workspaceRoot: /path/to/repo   # the only tree Ditto may read from and write into
+#       approval: host                 # host | agent — see docs/SAFETY.md
+#       maxItems: 200
+#       resultItems: 25
+#       evidenceItems: 20
 - insert:
-    - id: dsh-ditto
-      name: '@dsh-ditto/plugin/dsh'
+    - id: ditto
+      name: 'dsh-ditto/dsh'
       config:
         stateRoot: .dsh-ditto
