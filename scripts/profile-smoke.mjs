@@ -38,15 +38,17 @@ function must(result, what) {
   return result
 }
 
-/** Boot the profile; resolve 'booted' if it is still running after the grace period, or reject with the launcher's error. */
+/** Boot the profile; resolve once it is still running after the grace period, or when it exits cleanly. */
 function bootProfile(profile, env) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(dshLauncher.command, [...dshLauncher.prefix, '--profile', profile], { env, shell: dshLauncher.shell, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     child.stdout.on('data', chunk => { output += chunk })
     child.stderr.on('data', chunk => { output += chunk })
-    const timer = setTimeout(() => { stop(child); resolvePromise({ booted: true, output }) }, BOOT_GRACE_MS)
-    child.once('exit', code => { clearTimeout(timer); if (code === 0) resolvePromise({ booted: true, output }); else reject(new Error(`dsh --profile ${profile} exited ${code}:\n${output.slice(0, 3000)}`)) })
+    const timer = setTimeout(() => { stop(child); resolvePromise({ booted: true, stayedUp: true, output }) }, BOOT_GRACE_MS)
+    // A profile without an interactive app can legitimately exit 0 straight away;
+    // what matters is that the plugin tree loaded without an error.
+    child.once('exit', code => { clearTimeout(timer); if (code === 0) resolvePromise({ booted: true, stayedUp: false, output }); else reject(new Error(`dsh --profile ${profile} exited ${code}:\n${output.slice(0, 3000)}`)) })
     child.once('error', error => { clearTimeout(timer); reject(error) })
   })
 }
@@ -68,7 +70,11 @@ const profile = 'ditto-smoke'
 const env = { ...process.env, DSH_HOME: home, ...(dshLauncher.command === desktopExe ? { ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_DEFAULT_PROFILE: 'web' } : {}) }
 try {
   console.log(`Isolated DSH_HOME: ${home}`)
-  must(captureDsh(['--profile', profile, '--from-default-profile', 'web', '--dump-config'], { env }), 'initialise profile from web')
+  // Starting the profile from the shipped web template keeps the boot step
+  // meaningful (it has an app to load). A launcher too old for the flag still
+  // works: `dsh plugin add` below initialises the profile, exactly as before.
+  const initialised = captureDsh(['--profile', profile, '--from-default-profile', 'web', '--dump-config'], { env })
+  if (!initialised.ok) console.log('0. profile template        --from-default-profile unavailable; letting "dsh plugin add" initialise the profile')
   must(captureDsh(['plugin', '--profile', profile, 'add', tarball], { env }), 'dsh plugin add')
   const manifest = JSON.parse(readFileSync(join(home, 'profiles', profile, 'package.json'), 'utf8'))
   if (!manifest.dependencies?.['dsh-ditto']) throw new Error('profile manifest does not list dsh-ditto as a dependency')
@@ -80,7 +86,7 @@ try {
 
   const boot = await bootProfile(profile, env)
   if (!boot.booted || /plugin tree failed to load|dsh-ditto.*failed|cannot find.*dsh-ditto/i.test(boot.output)) throw new Error(`profile did not boot cleanly:\n${boot.output.slice(0, 3000)}`)
-  console.log(`3. dsh --profile           booted with dsh-ditto in the tree and stayed up for ${BOOT_GRACE_MS / 1000}s (no plugin load error)`)
+  console.log(`3. dsh --profile           ${boot.stayedUp ? `booted with dsh-ditto in the tree and stayed up for ${BOOT_GRACE_MS / 1000}s` : 'booted with dsh-ditto in the tree and exited cleanly'} (no plugin load error)`)
 
   const doctor = captureDsh(['plugin', '--profile', profile, 'exec', 'dsh-ditto', 'doctor'], { env })
   const summary = doctor.stdout.split('\n').filter(line => /^[✓!✗]/.test(line)).join('\n    ')
