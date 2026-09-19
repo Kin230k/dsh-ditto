@@ -2,7 +2,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from
 import { dirname, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
-import { assertNoLinkAncestor, samePath, within } from './paths.js'
+import { assertNoLinkAncestor, canonicalPath, samePath, within } from './paths.js'
 
 const CATEGORY = /^[a-z][a-z0-9-]{0,63}$/
 const LEAF = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/
@@ -13,9 +13,14 @@ const LEAF = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/
  */
 export async function stateCategoryPath(stateRoot: string, category: string, create = false): Promise<string> {
   if (!CATEGORY.test(category)) throw new Error('Invalid state category')
-  const root = resolve(stateRoot)
-  await assertNoLinkAncestor(root, 'Ditto stateRoot has a symlink or junction ancestor')
-  if (create) await mkdir(root, { recursive: true })
+  const given = resolve(stateRoot)
+  // Link detection runs against the path exactly as given — a Windows 8.3 short
+  // component such as RUNNER~1 is a real directory, not a link — while every
+  // containment comparison below uses the canonical form, because realpath
+  // expands those short names and would otherwise look like an escape.
+  await assertNoLinkAncestor(given, 'Ditto stateRoot has a symlink or junction ancestor')
+  if (create) await mkdir(given, { recursive: true })
+  const root = await canonicalPath(given)
   await assertDirectory(root, root, 'Ditto stateRoot')
 
   const folder = resolve(root, category)

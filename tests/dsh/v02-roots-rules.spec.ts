@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -45,6 +46,18 @@ async function insuranceFixture(source: string, count = 30, includeReadme = true
     await writeFile(join(source, `${code}_${PRODUCT_NAME}.pdf`), `%PDF-1.4 ${code}`, 'utf8')
   }
   if (includeReadme) await writeFile(join(source, 'README.txt'), 'not a product document', 'utf8')
+}
+
+/** The Windows 8.3 short name `dir /x` reports for one child, or undefined when the volume has none. */
+function shortNameOf(parent: string, name: string): string | undefined {
+  try {
+    for (const line of execFileSync('cmd', ['/c', 'dir', '/x', parent], { encoding: 'utf8' }).split('\n')) {
+      const parts = line.trim().split(/\s+/)
+      const index = parts.indexOf(name)
+      if (index > 0) return parts[index - 1]
+    }
+  } catch { /* 8.3 names are optional; leave the caller to skip */ }
+  return undefined
 }
 
 function zipEntryNames(archive: Buffer): string[] {
@@ -431,7 +444,7 @@ describe('reviewed sidecars and the archive', () => {
     // A sidecar may not overwrite a reviewed file destination.
     expect((await call(ctx, 'ditto_revise_rule', {
       plan_id: plan.id, revision: plan.revision, pattern: '{stem}',
-      sidecars: [{ kind: 'checksums', destination: 'documents/AB01_a.txt' }],
+      sidecars: [{ kind: 'checksums', destination: 'documents/AB01_a.pdf' }],
     })).isError).toBe(true)
     // Two sidecars may not share one path.
     expect((await call(ctx, 'ditto_revise_rule', {
@@ -445,13 +458,15 @@ describe('reviewed sidecars and the archive', () => {
       { kind: 'sql-insert', destination: 'X.sql', sql: { dialect: 'sqlserver', schema: 'dbo', table: 'T', columns: ['A'], values: { B: 'x' } } },
     ]) expect((await call(ctx, 'ditto_revise_rule', { plan_id: plan.id, revision: plan.revision, pattern: '{stem}', sidecars: [bad] })).isError).toBe(true)
 
+    // Reviewed nested destinations keep their forward slashes on every platform.
     const revised = value(await call(ctx, 'ditto_revise_rule', {
       plan_id: plan.id, revision: plan.revision, pattern: '{stem}',
-      sidecars: [{ kind: 'checksums', destination: 'SHA256SUMS.txt' }],
-      archive: { kind: 'zip', destination: 'bundle.zip' },
+      sidecars: [{ kind: 'checksums', destination: 'review/SHA256SUMS.txt' }],
+      archive: { kind: 'zip', destination: 'delivery/bundle.zip' },
     }))
     const identity = revised.plan as { revision: number; digest: string }
     const artifactId = (revised.plan as unknown as { artifacts: Array<{ id: string }> }).artifacts[0]!.id
+    expect((revised.plan as unknown as { artifacts: Array<{ destination: string }> }).artifacts[0]!.destination.replace(/\\/g, '/')).toBe('review/SHA256SUMS.txt')
     const review = value(await call(ctx, 'ditto_artifact_review', { plan_id: plan.id, revision: identity.revision, digest: identity.digest, artifact_id: artifactId }))
     expect((review.page as { total: number }).total).toBeGreaterThan(0)
 
@@ -459,8 +474,9 @@ describe('reviewed sidecars and the archive', () => {
     await mkdir(output, { recursive: true })
     await writeFile(join(output, 'unreviewed-secret.txt'), 'not reviewed', 'utf8')
     value(await call(ctx, 'ditto_apply', { plan_id: plan.id, revision: identity.revision, digest: identity.digest }))
-    const archive = await readFile(join(output, 'bundle.zip'))
+    const archive = await readFile(join(output, 'delivery', 'bundle.zip'))
     expect(archive.includes(Buffer.from('unreviewed-secret.txt'))).toBe(false)
+    expect(zipEntryNames(archive)).toEqual(['documents/AB01_a.pdf', 'review/SHA256SUMS.txt'].sort())
     await ctx.fiber.dispose()
   })
 })
@@ -478,6 +494,24 @@ describe('durable state link safety', () => {
     await expect(stateCategoryPath(state, 'plans', true)).rejects.toThrow()
     await expect(atomicWriteStateText(state, 'plans', 'evil.json', '{}')).rejects.toThrow()
     await expect(readStateText(state, 'plans', 'evil.json')).rejects.toThrow()
+  })
+
+  it('accepts a stateRoot addressed through a Windows 8.3 short name', async () => {
+    if (process.platform !== 'win32') return
+    const parent = tmpdir()
+    const longName = 'ditto-shortname-regression-root'
+    const longRoot = join(parent, longName)
+    await mkdir(longRoot, { recursive: true })
+    const short = shortNameOf(parent, longName)
+    // Volumes with 8.3 name generation disabled have nothing to test here.
+    if (!short || short === longName) return
+    const state = join(parent, short, '.dsh-ditto')
+    // realpath expands the short component, so every state comparison must be
+    // canonical on both sides or a legitimate temp path looks like an escape.
+    const category = await stateCategoryPath(state, 'plans', true)
+    await atomicWriteStateText(state, 'plans', 'short.json', '{"ok":true}\n')
+    expect(await readStateText(state, 'plans', 'short.json')).toBe('{"ok":true}\n')
+    expect(category.toLowerCase()).toContain(longName.toLowerCase())
   })
 
   it('rejects a stateRoot that is itself a link', async () => {

@@ -105,7 +105,9 @@ export function artifactKindFormat(spec: SidecarSpec): string { return spec.kind
 function validateSidecarDestination(spec: SidecarSpec): void {
   if (typeof spec.destination !== 'string' || spec.destination.trim() === '') throw new Error('Each sidecar needs an output-root-relative destination')
   const safe = safeRelative(spec.destination)
-  if (safe !== spec.destination.replace(/\\/g, '/')) throw new Error(`A sidecar destination must be a plain output-root-relative path: ${spec.destination}`)
+  // Compare separator-insensitively: `safeRelative` returns the platform form,
+  // but a reviewed destination may legitimately use forward slashes anywhere.
+  if (safe.replace(/\\/g, '/') !== spec.destination.replace(/\\/g, '/')) throw new Error(`A sidecar destination must be a plain output-root-relative path: ${spec.destination}`)
   if (extname(basename(safe)) === '') throw new Error(`A sidecar destination needs a file extension: ${spec.destination}`)
 }
 

@@ -35,7 +35,7 @@ export function classify(relativePath: string): string {
 export function validateRecipe(recipe: Recipe): void {
   if (!recipe || ![1, 2].includes(recipe.version) || !isSafeId(recipe.id) || !isHumanName(recipe.name) || typeof recipe.createdAt !== 'string' || Number.isNaN(Date.parse(recipe.createdAt)) || typeof recipe.pattern !== 'string' || recipe.pattern.length === 0 || recipe.pattern.length > 320 || !['folder-prefix', 'none'].includes(recipe.classification?.kind)) throw new Error('Invalid recipe')
   if (recipe.classification.folders && Object.values(recipe.classification.folders).some(folder => typeof folder !== 'string' || folder.length > 100 || !isSafeSegment(folder))) throw new Error('Invalid recipe folder')
-  if (recipe.overrides && (Object.keys(recipe.overrides).length > 10_000 || Object.entries(recipe.overrides).some(([source, destination]) => !isContainedRelativeSource(source) || typeof destination !== 'string' || safeRelative(destination) !== destination))) throw new Error('Invalid recipe override')
+  if (recipe.overrides && (Object.keys(recipe.overrides).length > 10_000 || Object.entries(recipe.overrides).some(([source, destination]) => !isContainedRelativeSource(source) || typeof destination !== 'string' || safeRelative(destination).replace(/\\/g, '/') !== destination.replace(/\\/g, '/')))) throw new Error('Invalid recipe override')
   if (recipe.sidecars !== undefined) {
     if (!Array.isArray(recipe.sidecars)) throw new Error('Invalid recipe sidecars')
     for (const spec of recipe.sidecars) validateSidecar(spec)
