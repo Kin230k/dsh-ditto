@@ -19,7 +19,7 @@ Node.js 22 or later. The dev dependencies pin the supported DSH packages (`@deep
 | `npm test` | Vitest: core safety (`tests/core`), Code → Spec engine (`tests/spec`), review pages (`tests/ui`), plugin contract and native tools on the real component host (`tests/dsh`), CLI demo and doctor (`tests/cli`) |
 | `npm run smoke:dsh` | The `tests/dsh` suite in an isolated `DSH_HOME`, with an assertion on the resolved DSH versions (`DITTO_DSH_VERSION` overrides the expected version) |
 | `npm run smoke:tarball` | `npm pack`, install the tarball into an empty project next to the DSH peers, mount from the installed copy, run the installed CLI and doctor |
-| `npm run smoke:profile` | Real launcher: `dsh plugin --profile ditto-smoke add <tarball>` in a temporary `DSH_HOME`, `--dump-config`, a negative-control boot, a real boot, and the doctor inside the profile. Needs `dsh` and `pnpm` on PATH; never touches your own `~/.dsh` |
+| `npm run smoke:profile` | Real launcher: initialise a `ditto-smoke` profile from the shipped `web` template in a temporary `DSH_HOME`, `dsh plugin add <tarball>`, `--dump-config`, a real boot, and the doctor inside the profile. Needs `dsh` and `pnpm` on PATH; never touches your own `~/.dsh`. On Windows it invokes the DSH Desktop CLI directly, because the generated `dsh.cmd` wrapper pins `DSH_HOME` to your real profile |
 | `npm run docs:tools` / `-- --check` | Regenerate `docs/TOOLS.md` from the live schemas + `src/dsh/catalog.ts`, or fail if it is stale |
 | `npm run demo:headless` | The terminal demo (16 synthetic modules) |
 | `npm run demo` / `npm run demo:files` | The browser review pages on synthetic data |
@@ -38,7 +38,7 @@ git checkout package.json && npm ci          # back to the pinned set
 
 ## Conventions
 
-- TypeScript, ESM, `strict`. No runtime dependencies beyond the DSH peers; keep it that way.
+- TypeScript, ESM, `strict`. Runtime dependencies are limited to the DSH peers and `re2-wasm`; ZIP and SQL sidecars must remain deterministic and must never shell out.
 - Every safety guarantee gets a test, and [docs/SAFETY.md](SAFETY.md) lists it. If you add a gate, add both.
 - Error messages are English, one sentence, and tell the agent what to do next (for example "call ditto_spec_status and retry with its current revision and digest").
 - The skill lives in `skills/ditto/SKILL.md` only. Do not duplicate its text in TypeScript.
@@ -48,11 +48,11 @@ git checkout package.json && npm ci          # back to the pinned set
 
 ## Releasing
 
-1. Update `CHANGELOG.md` and the version in `package.json`; keep `src/compat.ts` and `docs/COMPATIBILITY.md` in step.
-2. `npm run release:check`, and `npm run smoke:profile` on a machine with `dsh` installed.
-3. Tag `vX.Y.Z`, push, let CI go green.
-4. `npm publish` (the `prepublishOnly` script rebuilds, tests, and checks the tool docs).
-5. Create the GitHub release with the changelog section.
+1. Update `CHANGELOG.md` and the version in `package.json`/lockfile; keep `src/compat.ts` and `docs/COMPATIBILITY.md` in step.
+2. Run `git diff --check`, `npm run release:check`, `npm pack --dry-run`, inspect the packed file list, and run `npm run smoke:profile` on a machine with `dsh` and pnpm installed.
+3. Tag `vX.Y.Z`, push, and let CI go green.
+4. Run `npm publish --access public` (the `prepublishOnly` script rebuilds, tests, and checks generated tool docs).
+5. Create the GitHub release from the matching changelog section.
 
 ## Debugging inside a profile
 

@@ -10,9 +10,16 @@
 #
 #   - id: ditto
 #     config:
-#       stateRoot: .dsh-ditto          # durable batch state; must stay inside workspaceRoot
-#       workspaceRoot: /path/to/repo   # the only tree Ditto may read from and write into
+#       workspaceRoot: /path/to/repo   # anchor for relative paths, state, and Code → Spec
+#       stateRoot: .dsh-ditto          # durable state; must stay inside workspaceRoot
+#       allowedSourceRoots:            # absolute roots; widens file organisation only
+#         - /path/to/repo
+#         - C:/Users/name/Desktop/ftp-backup
+#       allowedDestinationRoots:
+#         - /path/to/repo
+#         - C:/Users/name/Desktop/deliveries
 #       approval: host                 # host | agent — see docs/SAFETY.md
+#       approvalUnavailable: deny      # set agent only if conversational fallback is accepted
 #       maxItems: 200
 #       resultItems: 25
 #       evidenceItems: 20

@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   try {
     console.log(`Ditto component-host smoke against DSH ${EXPECTED} (isolated DSH_HOME: ${dshHome})`)
     await run(process.execPath, [vitestBin(), 'run', 'tests/dsh'], { ...process.env, DSH_HOME: dshHome })
-    console.log('Passed: real Cordis + published ToolRuntime/SkillRegistry registered the skill from SKILL.md and all 14 tools, completed the agent-driven evidence/draft flow, honoured guard and pre-execute denials, and removed everything on unload.')
+    console.log('Passed: real Cordis + published ToolRuntime/SkillRegistry registered the skill from SKILL.md and every catalogued tool, completed the agent-driven evidence/draft flow, honoured guard and pre-execute denials, and removed everything on unload.')
     console.log('Scope: component host only — no @deepseek-ai/dsh CLI profile boot and no model calls. See npm run smoke:profile for the real profile install.')
   } finally {
     await rm(dshHome, { recursive: true, force: true })

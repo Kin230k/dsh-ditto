@@ -12,7 +12,10 @@ Skill: `ditto` — Review-first batch work. Use when a request covers a whole fo
 |---|---|---|---|---|
 | `ditto_preview` | File organisation | Discover / preview | Durable plan metadata under stateRoot only; no source or output files. | None. Read-only preview. |
 | `ditto_revise` | File organisation | Review / edit | Durable plan metadata only. | None. Only submit edits the user asked for. |
-| `ditto_apply` | File organisation | Apply | New files under destination_root; per-item statuses in stateRoot. Never overwrites, never touches sources. | Explicit user approval of the displayed plan. With approval=host the DSH host prompts the user again before writing. |
+| `ditto_revise_rule` | File organisation | Review / rule revision | Durable plan metadata only. | None. Only submit the rule the user asked for. |
+| `ditto_manifest` | File organisation | Review / manifest | One review document under stateRoot; never the output folder. | None. Read-only export. |
+| `ditto_artifact_review` | File organisation | Review / sidecar | Nothing. | None. |
+| `ditto_apply` | File organisation | Apply | New reviewed files under destination_root and durable outcome journals in stateRoot. Never overwrites, never touches sources. | Explicit user approval of the displayed plan. With approval=host the DSH host prompts the user again before writing. |
 | `ditto_status` | File organisation | Status / resume | Nothing. | None. |
 | `ditto_recipe` | File organisation | Recipe | Recipe JSON under stateRoot when action=save. | None. |
 | `ditto_spec_create` | Code → Spec | Discover | Batch metadata under stateRoot only. | None. Read-only scan. |
@@ -271,7 +274,7 @@ Skill: `ditto` — Review-first batch work. Use when a request covers a whole fo
 
 ### `ditto_preview`
 
-**Purpose.** Scan a source folder and propose organised destination names for copies.
+**Purpose.** Scan an authorised source folder and propose organised copies, optional reviewed sidecars, and an optional ZIP.
 
 **Stage.** Discover / preview
 
@@ -279,21 +282,23 @@ Skill: `ditto` — Review-first batch work. Use when a request covers a whole fo
 
 **Approval.** None. Read-only preview.
 
-**Failure cases.** Folders outside the workspace, output inside the source, symlinks or junctions in the batch, more files than max_items, colliding destinations.
+**Failure cases.** Folders outside the authorised roots, output overlapping the source or state metadata, symlinks or junctions in the batch, more files than max_items, colliding destinations or artifacts.
 
 **Description shown to the agent.**
 
-> Create a read-only Ditto preview for organising a batch of files inside the configured workspace. This writes only durable local review metadata, never source files or output copies. Returns the reviewed plan identity, digest, summary, and the first bounded page of proposed names; use ditto_status for later pages. Review the proposed names and exceptions with the user before ditto_apply.
+> Create a read-only Ditto preview for organising a batch of files inside profile-authorised source and destination roots. This writes only durable local review metadata, never source files or output copies. It may include reviewed sidecars and an optional ZIP. Returns the reviewed plan identity, digest, diagnostics, and the first bounded page; use ditto_status for later pages. Review names, exceptions, artifacts, and archive before ditto_apply.
 
 **Input.**
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `source_root` | string | yes | Existing source folder inside the Ditto workspace. It is read-only. |
-| `destination_root` | string | yes | New output folder inside the Ditto workspace. It must be outside source_root and never overlap Ditto state metadata. |
+| `source_root` | string | yes | Existing read-only source folder inside a profile-authorised source root. |
+| `destination_root` | string | yes | New output folder inside a profile-authorised destination root. It must be outside source_root and never overlap Ditto state metadata. |
 | `recipe_name` | string | no | Optional 1–80 character label for this draft rule. |
 | `pattern` | string | no | Optional declarative filename pattern. Only {stem}, {ext}, {index}, and {class} are substituted; for example "2026-{stem}" or "{index}-{class}-{stem}". It cannot contain paths, scripts, or shell commands. |
 | `classification` | enum: `folder-prefix`, `none` | no | Whether copies are grouped under a deterministic classification folder (documents, images, text, other). |
+| `sidecars` | array of object | no | Optional reviewed sidecars to include from the first preview: deterministic manifest, checksums, or safe sql-insert text files. Each entry has the same declarative shape accepted by ditto_revise_rule. |
+| `archive` | object | no | Optional reviewed ZIP of every successful output, for example {kind:"zip", destination:"bundle.zip"}. It is built only from reviewed outputs. |
 | `max_items` | integer | no | Optional cap, from 1 to the profile maximum. |
 
 **Output.** A JSON object; the tool result is the lossless JSON rendered as text.
@@ -324,21 +329,110 @@ Skill: `ditto` — Review-first batch work. Use when a request covers a whole fo
 
 **Output.** A JSON object; the tool result is the lossless JSON rendered as text.
 
-### `ditto_apply`
+### `ditto_revise_rule`
 
-**Purpose.** Create the reviewed copies in the new output folder; originals stay untouched.
+**Purpose.** Revise the whole declarative rule (match regex, scope, flags, destination template, classification) and regenerate every proposal and exception in one reviewed revision.
 
-**Stage.** Apply
+**Stage.** Review / rule revision
 
-**Writes.** New files under destination_root; per-item statuses in stateRoot. Never overwrites, never touches sources.
+**Writes.** Durable plan metadata only.
 
-**Approval.** Explicit user approval of the displayed plan. With approval=host the DSH host prompts the user again before writing.
+**Approval.** None. Only submit the rule the user asked for.
 
-**Failure cases.** Stale revision/digest, changed source (rejected per item), existing destination (failed per item, never overwritten), host approval rejected/unavailable (nothing written).
+**Failure cases.** Stale revision (call ditto_status), an unsupported regex (backreferences, lookarounds, alternation, nested quantifiers), an unknown or unsafe template token, a template that changes the source extension, rule revision after apply intent or any outcome exists.
 
 **Description shown to the agent.**
 
-> Create copies using exactly one reviewed Ditto plan. Call it only after the user has approved the displayed batch; when the DSH host has an approval service, the host asks the user once more before anything is written. The digest proves plan identity and freshness; it is not human-approval proof. Originals remain untouched and completed output copies are never overwritten. Returns actual statuses and only the first bounded item page; use ditto_status with nextOffset for the rest. A stale revision or digest requires ditto_status and renewed review; a changed source requires a new ditto_preview.
+> Revise the whole declarative rule of a reviewed Ditto plan (match regex, scope, flags, destination pattern, classification) and regenerate every proposal and exception deterministically. This never copies files and is the tool to use instead of editing dozens of items one by one. Rejected once any item has apply intent or an outcome. Returns a new revision and digest plus the bounded first page; a stale revision requires ditto_status and renewed review.
+
+**Input.**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `plan_id` | string | yes | Plan id returned by ditto_preview or ditto_status. |
+| `revision` | integer | yes | Exact current plan revision returned by ditto_preview, ditto_revise_rule, or ditto_status. |
+| `pattern` | string | no | New output-root-relative destination template. Supports {stem}, {ext} (the extension including its dot), {index}, {class}, and {match.<name>} for named captures, and may contain reviewed subfolders, for example "PRO/PRO_FILES/{match.code}/{match.code}{ext}". Never a script or shell command. |
+| `match_regex` | json | no | New anchored named-capture regular expression, for example "^(?<code>[^_]+)_.*\.pdf$". Evaluated by a linear-time engine; backreferences, lookarounds, alternation, and nested quantifiers are rejected. Pass null to remove the match rule. |
+| `match_scope` | enum: `basename`, `relative-path` | no | Whether match_regex runs against the file name or the workspace-relative path with forward slashes. |
+| `match_flags` | string | no | Only 'i' and 'u' are accepted. |
+| `classification` | enum: `folder-prefix`, `none` | no | Whether copies are grouped under a deterministic classification folder. |
+| `preserve_overrides` | boolean | no | Keep the currently reviewed per-source overrides as explicit rule overrides. Default false: the regenerated proposal replaces them. |
+| `sidecars` | array of object | no | Replace the reviewed sidecars with this list. Each entry writes a deterministic text file into the output folder: {kind:"manifest", destination:"REVIEW.csv", format:"csv"\|"json"\|"markdown"}, {kind:"checksums", destination:"SHA256SUMS.txt"}, or {kind:"sql-insert", destination:"INIT.sql", sql:{dialect:"sqlserver"\|"postgres"\|"sqlite", schema, table, columns:[...], values:{COLUMN:"template"}}}. SQL identifiers are strictly validated and template values become escaped literals only; no raw SQL, comment, or batch separator is accepted. Pass an empty array to remove all sidecars. |
+| `archive` | json | no | Set a reviewed ZIP of every successful output, for example {kind:"zip", destination:"bundle.zip"}. Pass null to remove it. The archive is built only from the reviewed outputs, never by walking the output folder. |
+
+**Output.** A JSON object; the tool result is the lossless JSON rendered as text.
+
+### `ditto_manifest`
+
+**Purpose.** Export the complete reviewed mapping as one downloadable CSV, JSON, or Markdown document under Ditto state so a large batch need not be read page by page.
+
+**Stage.** Review / manifest
+
+**Writes.** One review document under stateRoot; never the output folder.
+
+**Approval.** None. Read-only export.
+
+**Failure cases.** Stale revision/digest (call ditto_status), unknown plan id, unsupported format.
+
+**Description shown to the agent.**
+
+> Export the complete reviewed mapping of a Ditto plan as one downloadable document under Ditto state (never into the output folder), so a large batch does not have to be read page by page. Requires the exact current plan id, revision, and digest. Returns the file path, byte count, SHA-256, and row count; use the path with the host file tools to show the user the document.
+
+**Input.**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `plan_id` | string | yes | Plan id returned by ditto_preview or ditto_status. |
+| `revision` | integer | yes | Exact current plan revision. |
+| `digest` | string | yes | Exact current plan digest. |
+| `format` | enum: `csv`, `json`, `markdown` | no | Document format. Default csv, whose formula-looking cells are neutralised. |
+
+**Output.** A JSON object; the tool result is the lossless JSON rendered as text.
+
+### `ditto_artifact_review`
+
+**Purpose.** Read the exact bytes of one reviewed sidecar (manifest, checksums, or SQL insert) before apply, in bounded pages.
+
+**Stage.** Review / sidecar
+
+**Writes.** Nothing.
+
+**Approval.** None.
+
+**Failure cases.** Stale revision/digest, unknown sidecar id, invalid paging, a sidecar that no longer renders to its reviewed hash.
+
+**Description shown to the agent.**
+
+> Read the exact bytes of one reviewed sidecar of a Ditto plan before apply, in bounded pages. Requires the exact current plan id, revision, and digest plus the sidecar id from the plan view. Returns the sidecar metadata, the page, and nextOffset; the content always matches the hash that is part of the reviewed plan digest.
+
+**Input.**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `plan_id` | string | yes | Plan id returned by ditto_preview or ditto_status. |
+| `revision` | integer | yes | Exact current plan revision. |
+| `digest` | string | yes | Exact current plan digest. |
+| `artifact_id` | string | yes | Sidecar id from the plan view. |
+| `offset` | integer | no | Zero-based character offset; default 0. Pass nextOffset to continue. |
+| `limit` | integer | no | Characters to return, 1–8000; default 4000. |
+
+**Output.** A JSON object; the tool result is the lossless JSON rendered as text.
+
+### `ditto_apply`
+
+**Purpose.** Create the reviewed copies, sidecars, and optional archive in deterministic stages; originals stay untouched.
+
+**Stage.** Apply
+
+**Writes.** New reviewed files under destination_root and durable outcome journals in stateRoot. Never overwrites, never touches sources.
+
+**Approval.** Explicit user approval of the displayed plan. With approval=host the DSH host prompts the user again before writing.
+
+**Failure cases.** Stale revision/digest, changed source (rejected per item), existing destination (failed per item, never overwritten), changed output during archive creation, or host approval rejected/unavailable (nothing written).
+
+**Description shown to the agent.**
+
+> Create copies using exactly one reviewed Ditto plan. Call it only after the user has approved the displayed batch; when the DSH host has an approval service, the host asks the user once more before anything is written. The digest proves plan identity and freshness; it is not human-approval proof. Originals remain untouched and completed output copies are never overwritten. Returns actual statuses, explicit output deliverables (including sidecars and archive), and only the first bounded item page; use ditto_status with nextOffset for the rest. A stale revision or digest requires ditto_status and renewed review; a changed source requires a new ditto_preview.
 
 **Input.**
 
@@ -360,7 +454,7 @@ Skill: `ditto` — Review-first batch work. Use when a request covers a whole fo
 
 **Approval.** None.
 
-**Failure cases.** Unknown plan id, saved plan roots outside the workspace, invalid offset/limit.
+**Failure cases.** Unknown plan id, saved plan roots no longer authorised, invalid offset/limit.
 
 **Description shown to the agent.**
 

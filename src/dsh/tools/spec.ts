@@ -175,9 +175,10 @@ function applyTool(service: DshDitto) {
     output: jsonOutput,
     async execute(args, exec) {
       checkNotAborted(exec.signal)
-      const batch = await service.specStatus(args.batch_id)
+      // Refuse a stale identity before presenting any approval prompt.
+      const batch = await service.reviewSpecApply(args.batch_id, args.revision, args.digest)
       const pending = batch.items.filter(item => ['ready', 'approved'].includes(item.status)).length
-      const approval = await requireHumanApproval({ ctx: service.host, mode: service.config.approval, exec, toolName: 'ditto_spec_apply', reason: `Write ${pending} reviewed Markdown specifications into ${batch.outputRoot} (batch ${batch.id}, revision ${batch.revision}). Source files are never modified.` })
+      const approval = await requireHumanApproval({ ctx: service.host, mode: service.config.approval, unavailable: service.config.approvalUnavailable, exec, toolName: 'ditto_spec_apply', reason: `Write ${pending} reviewed Markdown specifications into ${batch.outputRoot} (batch ${batch.id}, revision ${batch.revision}). Source files are never modified.` })
       checkNotAborted(exec.signal)
       const result = await service.applySpec(args.batch_id, args.revision, args.digest)
       checkNotAborted(exec.signal)

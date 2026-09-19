@@ -18,10 +18,13 @@ export async function createSpecBatch(options: CreateSpecBatchOptions): Promise<
   const adapters = options.adapters ?? DEFAULT_ADAPTERS
   validateAdapters(adapters)
   const sourceRoot = await realpath(options.sourceRoot); const outputRoot = await canonicalPath(options.outputRoot)
-  if (samePath(sourceRoot, outputRoot) || within(sourceRoot, outputRoot, true)) throw new Error('The specification output folder must be outside the source folder')
-  const canonicalState = options.stateRoot ? await canonicalPath(options.stateRoot) : undefined
-  const stateRoot = canonicalState && within(sourceRoot, canonicalState, true) ? canonicalState : undefined
-  const scan = await collectSourceFiles(sourceRoot, maxModules, adapters, stateRoot)
+  if (pathsOverlap(sourceRoot, outputRoot)) throw new Error('The specification output folder must be separate from and outside the source folder')
+  const stateRoot = options.stateRoot ? await canonicalPath(options.stateRoot) : undefined
+  // Ditto's own metadata is never read as source text; it is excluded, not fatal, so the
+  // common case of running Code-to-Spec over a workspace that holds stateRoot still works.
+  if (stateRoot && pathsOverlap(outputRoot, stateRoot)) throw new Error('The specification output folder must not overlap Ditto state metadata')
+  if (stateRoot && within(stateRoot, sourceRoot, true)) throw new Error('The specification source folder must not live inside Ditto state metadata')
+  const scan = await collectSourceFiles(sourceRoot, maxModules, adapters, stateRoot ? [stateRoot] : [])
   const files = scan.files
   if (files.length < minModules) throw new Error(`At least ${minModules} ${describeLanguages(adapters)} modules are needed; found ${files.length}`)
   const items = await Promise.all(files.map(source => prepareModule(sourceRoot, source, adapters)))
@@ -103,20 +106,25 @@ export function hash(value: string | Buffer): string { return createHash('sha256
 export function normalizeInstructions(value: string): string { if (typeof value !== 'string' || value.length > 8_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value)) throw new Error('Batch instructions are invalid (up to 8,000 characters of plain text)'); return value.trim() }
 
 function describeLanguages(adapters: readonly LanguageAdapter[]): string { return adapters.map(adapter => adapter.displayName).join(' / ') }
+function pathsOverlap(a: string, b: string): boolean { return within(a, b, true) || within(b, a, true) }
 
-async function collectSourceFiles(root: string, max: number, adapters: readonly LanguageAdapter[], stateRoot?: string): Promise<{ files: string[]; discovery: SpecDiscovery }> {
+async function collectSourceFiles(root: string, max: number, adapters: readonly LanguageAdapter[], ignoredRoots: readonly string[] = []): Promise<{ files: string[]; discovery: SpecDiscovery }> {
   const files: string[] = []
   const excluded: SpecExclusion[] = []; const counts: Record<SpecExclusion['reason'], number> = { 'ignored-folder': 0, 'state-folder': 0, 'non-code': 0, 'declaration-file': 0, generated: 0, 'too-large': 0, symlink: 0 }
   const exclude = (path: string, reason: SpecExclusion['reason']) => { counts[reason]++; if (excluded.length < 200) excluded.push({ relativePath: path.split(sep).join('/'), reason }) }
   async function walk(folder: string): Promise<void> {
     for (const entry of await readdir(folder, { withFileTypes: true })) {
       const candidate = join(folder, entry.name); const relativePath = relative(root, candidate)
-      if (stateRoot && samePath(candidate, stateRoot)) { exclude(relativePath, 'state-folder'); continue }
       const info = await lstat(candidate)
       if (info.isSymbolicLink()) { exclude(relativePath, 'symlink'); continue }
       const actual = await realpath(candidate)
       if (!within(root, actual) && !samePath(root, actual)) { exclude(relativePath, 'symlink'); continue }
-      if (info.isDirectory()) { if (IGNORED_FOLDERS.has(entry.name)) exclude(relativePath, 'ignored-folder'); else await walk(actual); continue }
+      if (info.isDirectory()) {
+        if (ignoredRoots.some(ignored => samePath(ignored, actual))) exclude(relativePath, 'state-folder')
+        else if (IGNORED_FOLDERS.has(entry.name)) exclude(relativePath, 'ignored-folder')
+        else await walk(actual)
+        continue
+      }
       if (!info.isFile()) continue
       const adapter = adapterFor(entry.name, adapters)
       if (!adapter) { exclude(relativePath, 'non-code'); continue }

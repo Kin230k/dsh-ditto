@@ -10,6 +10,16 @@ Ditto stays small, understandable, safe, DSH-native, and review-first. The roadm
 - One-line install (`dsh plugin --profile web add dsh-ditto`), `dsh-ditto doctor`, deterministic demo
 - Tested against DSH 0.1.5-rc.1 / rc.2, canary against 0.1.6-alpha
 
+## 0.2 — production file organisation
+
+- 17 typed native tools: nine Code → Spec and eight file organisation
+- Profile-owned external source/destination allowlists without widening relative paths, state, or Code → Spec
+- Recipe v2: strict RE2 named captures, nested safe paths, item-level exceptions, and whole-rule revision
+- Complete paged/exported manifests plus reviewed manifest, checksums, and literal-only SQL text sidecars
+- Deterministic streamed ZIP delivery from the reviewed allowlist, with explicit classic-ZIP limits and exact-hash crash recovery
+- Fail-closed host-approval `unavailable` handling with explicit profile-owner agent fallback
+- Link-hardened state, cross-process mutation locks, v1 compatibility fixtures, and 174-file acceptance coverage
+
 ## Next — help wanted
 
 These are scoped so a contributor can take one without touching the safety core. Look for the matching labels in the issue tracker.

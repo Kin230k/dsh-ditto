@@ -36,6 +36,7 @@ Do not use Ditto when:
 - Never invent paths, line numbers, routes, parameters, errors, or behaviour. Every factual statement in a specification draft must cite an evidence id (`ev_…`) that Ditto returned for that module. Put anything unsupported or uncertain under `confirmations` as a question — never state it as a fact.
 - A stale revision or digest means the batch changed: read `ditto_spec_status` or `ditto_status`, show the user what changed, and continue from the current identity. A changed source file needs a new batch.
 - Ditto never executes or modifies the user's source files, writes only into a separate output folder, and never overwrites existing files. Say so when the user asks what will happen.
+- Host approval `unavailable` (including a missing service/agent identity or policy `never`) denies by default. Never retry around or bypass it. Proceed as agent only when the profile explicitly enabled `approvalUnavailable: agent` **and** the reviewed preview was shown and approved conversationally; that fallback is not proof of human approval. Rejection and cancellation always stop.
 
 ## Workflow A — Code → Spec (TypeScript / JavaScript today)
 
@@ -49,10 +50,14 @@ Do not use Ditto when:
 
 ## Workflow B — File organisation (copies, never moves)
 
-1. `ditto_preview` with the source folder, a new output folder, and an optional naming pattern. Show the proposed names and any exceptions.
-2. Fix names the user wants changed with `ditto_revise`.
-3. Only after the user explicitly approves the displayed plan, call `ditto_apply`. Report the per-file results.
-4. `ditto_recipe` can save the reviewed rule for the next batch.
+1. `ditto_preview` with the source folder, a new output folder, an optional naming pattern, and any sidecars/archive already known. Show the proposed names, exceptions, sidecar hashes, and archive destination.
+2. When the rule itself is wrong for many files, fix it in one step with `ditto_revise_rule` instead of editing dozens of items one by one. Use `ditto_revise` only for individual exceptions the user asks for. Rule revision can replace reviewed sidecars (`manifest`, `checksums`, `sql-insert`) and set or remove the ZIP archive.
+3. Report `diagnostics` back to the user: how many items are ready, how many are exceptions, and why. An item that cannot be named safely is an exception, never a silent skip.
+4. Read the reviewed sidecar bytes with `ditto_artifact_review` before asking for approval, and export the whole mapping with `ditto_manifest` when the batch is too large to read page by page. Never present a sidecar you have not read.
+5. Only after the user explicitly approves the displayed plan, call `ditto_apply`. Report the per-file results and the `deliverables` (output folder, sidecars, archive) so the user can open the result.
+6. `ditto_recipe` can save the reviewed rule for the next batch.
+
+External folders are reachable only when the profile owner listed them in `allowedSourceRoots` / `allowedDestinationRoots`; a relative path always stays inside the workspace. If a preview is refused for that reason, tell the user the exact configuration to add rather than copying data into the workspace.
 
 ## Resuming
 

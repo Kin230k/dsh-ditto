@@ -1,6 +1,22 @@
 # Launch kit
 
-Ready-to-post announcements for the first public release. Every version carries the same message; adjust length to the venue, not the claims.
+> **Historical note:** the long-form posts below are the preserved 0.1 first-release kit. Their `v0.1.0` and 14-tool claims are historical and must not be reused as current 0.2 facts.
+
+## 0.2 release note
+
+**Ditto 0.2.0 — practical, review-first file delivery**
+
+Ditto now turns real external file batches into reviewed deliverables without widening the agent's general workspace boundary. A profile owner authorises source and destination roots; Recipe v2 captures codes with linear-time RE2, builds safe nested paths, and shows unmatched or colliding inputs as explicit exceptions. One rule revision updates the whole batch.
+
+The complete mapping can be exported as CSV/JSON/Markdown. Reviewed sidecars include manifests, SHA-256 lists, and escaped literal-only SQL INSERT text for SQL Server, PostgreSQL, or SQLite—Ditto never connects to a database or executes SQL. An optional deterministic streamed ZIP contains exactly the reviewed outputs, with durable exact-hash crash recovery.
+
+The plugin now exposes 17 native tools (nine Code → Spec, eight file organisation). Approval still fails closed: rejection/cancellation always deny, and an unavailable host prompt falls back only when the profile owner explicitly enables conversational agent approval.
+
+Before posting: run `npm run release:check`, `npm run smoke:profile`, and inspect `npm pack --dry-run`; publish only after all evidence is green.
+
+## Preserved 0.1 first-release material
+
+Ready-to-post announcements for the first public release. Adjust length to the venue, not the claims.
 
 Core message (do not change):
 

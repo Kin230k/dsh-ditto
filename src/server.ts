@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { applyPlan, createPlan, defaultRecipe, listRecipes, loadPlan, loadRecipe, recipeFromPlan, revisePlan, savePlan, saveRecipe, applySpecBatch, approveSpecSamples, countConfirmations, createSpecBatch, generateSpecBatch, hasCurrentSampleApproval, isSpecBatchReadyToApply, reviseSpecBatch, saveSpecBatch } from './core/index.js'
 import type { Plan, PlanEdit } from './core/types.js'
+import { withStateLock } from './core/state-paths.js'
 import { renderWorkbench } from './ui/workbench.js'
 import { renderSpecWorkbench, type SpecBatchLike } from './ui/spec-workbench.js'
 import type { SpecBatch, SpecGenerator } from './spec/types.js'
@@ -98,9 +99,16 @@ async function route(request: IncomingMessage, response: ServerResponse, context
   const body = await readJson(request)
   if (pathname === '/api/revise') {
     const revision = integer(body.revision, 'revision'); const edits = planEdits(body.edits)
-    if (revision !== context.getPlan().revision) throw new ClientError(409, 'The preview changed; refresh it before editing.')
-    if (edits.some(edit => context.getPlan().items.find(item => item.id === edit.id)?.status !== 'ready')) throw new ClientError(409, 'Items that already have a result can no longer be edited.')
-    const next = revisePlan(context.getPlan(), edits); await savePlan(next, context.stateRoot); context.setPlan(next)
+    const id = context.getPlan().id
+    const next = await withStateLock(context.stateRoot, id, async () => {
+      const durable = await loadPlan(id, context.stateRoot)
+      if (revision !== durable.revision) throw new ClientError(409, 'The preview changed; refresh it before editing.')
+      if (edits.some(edit => durable.items.find(item => item.id === edit.id)?.status !== 'ready')) throw new ClientError(409, 'Items that already have a result can no longer be edited.')
+      const revised = revisePlan(durable, edits)
+      await savePlan(revised, context.stateRoot)
+      return revised
+    })
+    context.setPlan(next)
     return respondJson(response, 200, { plan: next })
   }
   if (pathname === '/api/apply') {

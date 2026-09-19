@@ -1,6 +1,6 @@
 import { lstat, realpath } from 'node:fs/promises'
 import { lstatSync, realpathSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 
 /**
  * Path helpers shared by every boundary check.
@@ -56,11 +56,7 @@ export function canonicalPathSync(target: string): string {
  * created as ordinary directories.
  */
 export async function assertNoLinkAncestor(target: string, message = 'The path has a symlink or junction ancestor'): Promise<void> {
-  const absolute = resolve(target)
-  const segments = absolute.split(sep).filter(Boolean)
-  let cursor = isAbsolute(absolute) && absolute.startsWith(sep) ? sep : ''
-  for (const segment of segments) {
-    cursor = cursor ? join(cursor, segment) : `${segment}${sep}`
+  for (const cursor of ancestorPaths(target)) {
     try {
       const details = await lstat(cursor)
       if (details.isSymbolicLink()) throw new Error(`${message}: ${cursor}`)
@@ -73,11 +69,7 @@ export async function assertNoLinkAncestor(target: string, message = 'The path h
 
 /** Synchronous twin of {@link assertNoLinkAncestor}. */
 export function assertNoLinkAncestorSync(target: string, message = 'The path has a symlink or junction ancestor'): void {
-  const absolute = resolve(target)
-  const segments = absolute.split(sep).filter(Boolean)
-  let cursor = isAbsolute(absolute) && absolute.startsWith(sep) ? sep : ''
-  for (const segment of segments) {
-    cursor = cursor ? join(cursor, segment) : `${segment}${sep}`
+  for (const cursor of ancestorPaths(target)) {
     try {
       if (lstatSync(cursor).isSymbolicLink()) throw new Error(`${message}: ${cursor}`)
     } catch (error: unknown) {
@@ -85,6 +77,22 @@ export function assertNoLinkAncestorSync(target: string, message = 'The path has
       throw error
     }
   }
+}
+
+/** Root-aware component iteration preserves drive, UNC, and extended-path roots. */
+function ancestorPaths(target: string): string[] {
+  const absolute = resolve(target)
+  const root = parse(absolute).root
+  const segments = absolute.slice(root.length).split(/[\\/]+/).filter(Boolean)
+  const result: string[] = []
+  let cursor = root
+  // Drive, UNC-share, and extended roots are namespaces rather than path
+  // components; lstat on an extended drive root is invalid on Windows.
+  for (const segment of segments) {
+    cursor = join(cursor, segment)
+    result.push(cursor)
+  }
+  return result
 }
 
 /** True when `target` lies below `root` (or equals it when `includeRoot`). Cross-drive and parent paths are never inside. */

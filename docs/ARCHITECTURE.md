@@ -24,12 +24,12 @@ The core value is not a smarter model. It is that a batch of 20–50 similar ite
 |---|---|
 | `src/dsh/service.ts` | `DshDitto`, a Cordis `Service` (`provide: 'dshDitto'`, `inject: ['tools', 'skills']`). Registers the skill and the tools in its constructor. |
 | `src/dsh/skill.ts` | Loads `skills/ditto/SKILL.md` at runtime and turns its frontmatter into a `SkillRegistration`. The file is the only definition of the skill. |
-| `src/dsh/tools/files.ts` | `ditto_preview`, `ditto_revise`, `ditto_apply`, `ditto_status`, `ditto_recipe` |
+| `src/dsh/tools/files.ts` | Eight file tools: `ditto_preview`, `ditto_revise`, `ditto_revise_rule`, `ditto_manifest`, `ditto_artifact_review`, `ditto_apply`, `ditto_status`, `ditto_recipe` |
 | `src/dsh/tools/spec.ts` | `ditto_spec_create`, `ditto_spec_queue`, `ditto_spec_module`, `ditto_spec_submit`, `ditto_spec_review`, `ditto_spec_revise_samples`, `ditto_spec_approve`, `ditto_spec_apply`, `ditto_spec_status` |
-| `src/dsh/tools/shared.ts` | JSON result boundary, cancellation check, per-batch mutation lock, the human-approval gate |
+| `src/dsh/tools/shared.ts` | JSON result boundary, cancellation check, in-process queue plus state-backed mutation lock, and the human-approval gate |
 | `src/dsh/catalog.ts` | Human-facing facts per tool (stage, writes, approval, failure cases). `scripts/gen-tools-doc.ts` merges it with the live schemas into `docs/TOOLS.md`; a test keeps it in step with the registered tools. |
 | `src/dsh/config.ts` | Plugin configuration and its validation |
-| `src/core/*` | File-organisation engine: recipes, plans, revisions, digests, atomic JSON state, safe copy apply |
+| `src/core/*` | File-organisation engine: Recipe v1/v2 and RE2 matching, plans/exceptions, sidecar rendering (`artifacts.ts`), streamed deterministic ZIP (`zip.ts`), safe state paths and cross-process locks (`state-paths.ts`), digests and safe apply |
 | `src/spec/*` | Code → Spec engine: discovery, evidence chunks, draft validation, deterministic Markdown rendering, approval/recipe transitions, cached generation, safe write apply |
 | `src/spec/languages/*` | The `LanguageAdapter` seam (TypeScript/JavaScript shipped) |
 | `src/server.ts`, `src/ui/*` | Optional loopback-only review pages (no CDN, no third-party assets), used by the demo and `dsh-ditto serve` |
@@ -50,7 +50,7 @@ The core value is not a smarter model. It is that a batch of 20–50 similar ite
    ```
 
 3. The loader imports `dsh-ditto/dsh` (the `./dsh` export) and mounts `DshDitto` once its injected services (`tools`, `skills`) are available. Both come from `@deepseek-ai/dsh-base`, which every shipped profile except `sdk-minimal` includes.
-4. Everything Ditto registers is a Cordis effect of its own fiber. Unloading the bundle, or a live reload of the patch layer, disposes the fiber and removes the skill, all 14 tools, and the `dshDitto` service. The test `registers the bundled skill … and removes them on unload` covers this on the real registry.
+4. Everything Ditto registers is a Cordis effect of its own fiber. Unloading the bundle, or a live reload of the patch layer, disposes the fiber and removes the skill, all 17 tools, and the `dshDitto` service. The test `registers the bundled skill … and removes them on unload` covers this on the real registry.
 
 Module resolution follows DSH's two-anchor rule: the profile's own `node_modules` first, then the installation's dependency closure through `$DSH_HOME/profiles/node_modules`. That is why `@deepseek-ai/cordis` and `@deepseek-ai/dsh-tools` are **peerDependencies** — a second copy of the core inside the profile would give the plugin different `Service`/`Context` classes from the host's.
 
@@ -60,9 +60,12 @@ Set from the profile's own `cordis.patch.yml` by overriding the `ditto` entry (a
 
 | Field | Default | Meaning |
 |---|---|---|
-| `workspaceRoot` | the DSH process working directory | The only directory tree Ditto may read sources from or write outputs into. Every tool argument path is resolved against it and must stay inside it. |
-| `stateRoot` | `.dsh-ditto` (relative to `workspaceRoot`) | Durable plans, batches, recipes, and the generation cache. Must stay inside `workspaceRoot`; it is excluded from discovery when it sits inside a source folder. |
-| `approval` | `host` | `host`: before any batch write, ask the DSH approval service (`ctx.approval`) for a one-shot grant tied to the tool call; fall back to `agent` when the host composes no approval service. `agent`: rely on the skill's rule that the agent has already shown the preview and obtained approval. |
+| `workspaceRoot` | the DSH process working directory | Anchor for every relative tool path, all Code → Spec source/output paths, and durable state. Relative paths never inherit external-root authority. |
+| `stateRoot` | `.dsh-ditto` (relative to `workspaceRoot`) | Durable plans, locks, review manifests, batches, recipes, and generation cache. Must stay inside `workspaceRoot`; every category and leaf is link-checked. |
+| `allowedSourceRoots` | `[workspaceRoot]` | Canonical roots from which **file organisation only** may read. Absolute source paths must be contained by one of these profile-owned roots. |
+| `allowedDestinationRoots` | `[workspaceRoot]` | Canonical roots beneath which **file organisation only** may create outputs. Source and destination roles are checked separately. |
+| `approval` | `host` | `host`: request a one-shot DSH host grant after validating the exact reviewed identity. `agent`: explicitly rely on the conversational approval rule in the skill. |
+| `approvalUnavailable` | `deny` | A missing service/agent identity or host `unavailable` denies by default. `agent` is an explicit profile-owner fallback and is not proof of human approval. `rejected`/`cancelled` always deny. |
 | `maxItems` | 200 | Maximum files one file-organisation preview may enumerate (1–1000) |
 | `resultItems` | 25 | Maximum item records per tool response (1–100); larger sets are paged with `nextOffset` |
 | `evidenceItems` | 20 | Maximum evidence chunks per `ditto_spec_module` response (1–40); paged with `nextEvidenceOffset` |
@@ -85,7 +88,11 @@ Ditto's workspace boundary is its own check on top of whatever file sandbox the 
 
 ## The file-organisation pipeline
 
-A declarative recipe (`{stem}`, `{ext}`, `{index}`, `{class}` tokens plus an optional classification folder) produces a plan with one destination per source file. The user edits destinations; each edit is a new revision with a new digest. Apply copies files into the new output folder with `COPYFILE_EXCL`, verifying the source hash before and after the copy and the output hash after it. Recipes (rule + reviewed overrides) can be saved and reused; they contain no scripts or commands.
+Recipe v2 adds a strictly anchored, linear-time `re2-wasm` match rule with named captures to the existing `{stem}`, `{ext}`, `{index}`, and `{class}` tokens. `{match.name}` may render one safe path segment, so a reviewed template can create nested paths such as `PRO_FILES/{match.code}/{match.code}{ext}` without permitting traversal. Non-matches, unsafe captures, invalid destinations, and collisions are explicit per-item exceptions.
+
+`ditto_revise_rule` regenerates every proposal, exception, sidecar, and archive identity in one new revision; `ditto_revise` is reserved for genuine per-item overrides. `ditto_manifest` exports the complete reviewed mapping under state, while reviewed manifest/checksum/safe-SQL sidecars are hashed into the plan and paged through `ditto_artifact_review`. SQL is emitted text only and is never executed.
+
+Apply runs in three stages: verified `COPYFILE_EXCL` copies, exact reviewed sidecars, then a streamed deterministic store-only ZIP built from the persisted allowlist rather than a directory walk. Classic ZIP limits are checked explicitly. Copy, sidecar, and archive writes record durable intent and may adopt only the exact expected hash after a crash. Recipes contain no scripts or commands and can be saved and reused.
 
 ## Identity, revisions, digests
 
@@ -99,7 +106,7 @@ A declarative recipe (`{stem}`, `{ext}`, `{index}`, `{class}` tokens plus an opt
 Two layers, both always on:
 
 1. **Deterministic gate.** Apply requires the exact reviewed identity, a complete preview (every module rendered and validated), and, for Code → Spec, an approval record that matches the current revision. Nothing about this depends on the model behaving.
-2. **Host prompt (`approval: host`).** When the DSH deployment composes `@deepseek-ai/dsh-user-approval`, `ditto_apply` and `ditto_spec_apply` call `ctx.approval.request()` with the tool call id and a human-readable reason. Only `allowed-once` proceeds; `rejected`, `cancelled`, and `unavailable` abort before any write. A headless deployment with approval policy `never` therefore cannot run batch writes — by design.
+2. **Host prompt (`approval: host`).** After validating the caller's exact revision/digest, `ditto_apply` and `ditto_spec_apply` call `ctx.approval.request()` with the tool-call id and an authenticated summary. `allowed-once` proceeds; `rejected` and `cancelled` always deny. A missing approval service, missing agent identity, or `unavailable` (including policy `never`) denies by default. Only a profile owner may opt into `approvalUnavailable: agent`; that relies on the skill's conversational approval and is not proof of human approval.
 
 The skill additionally instructs the agent never to call an apply tool on its own initiative and to show the samples and the full preview before asking.
 
@@ -109,12 +116,14 @@ Under `stateRoot`:
 
 | Folder | Contents |
 |---|---|
-| `plans/<id>.json` | File-organisation plans with per-item status |
-| `recipes/<id>.json` | Saved naming recipes |
+| `plans/<id>.json` | File-organisation plans with reviewed identities, per-item/sidecar outcomes, and copy/archive crash journals |
+| `recipes/<id>.json` | Saved versioned naming recipes |
+| `reviews/<plan-id>.r<revision>.*` | Complete CSV/JSON/Markdown review manifests exported by `ditto_manifest` |
+| `locks/<hash>.lock/` | Atomic cross-process mutation leases with local dead-process recovery |
 | `spec-batches/<id>.json` | Code → Spec batches: discovery, evidence, drafts, rendered Markdown, approval record, per-module status |
-| `spec-cache/<hash>.json` | Generator responses keyed by source hash + recipe digest + generator id, so an edit to the samples does not force re-reading unchanged modules |
+| `spec-cache/<hash>.json` | Generator responses keyed by source hash + recipe digest + generator id |
 
-Writes are atomic (temporary file + rename). State never contains credentials; agent-supplied `metadata` on a draft is limited to short strings. Separate DSH processes must use separate state roots — the mutation locks are in-process.
+Every state root, category, temporary file, and leaf is checked against symlink/junction redirection. Writes are atomic (new temporary file + rename), and per-plan mutations are serialised in-process and through a state-root filesystem lock. State never contains credentials; agent-supplied `metadata` on a draft is limited to short strings.
 
 ## Language adapters
 

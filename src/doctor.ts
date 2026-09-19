@@ -20,6 +20,12 @@ export interface DoctorOptions {
   workspaceRoot?: string
   /** Mirrors the plugin's `stateRoot` config. Default: `.dsh-ditto` under the workspace. */
   stateRoot?: string
+  /** Mirrors the plugin's `allowedSourceRoots` config. Default: the workspace. */
+  allowedSourceRoots?: string[]
+  /** Mirrors the plugin's `allowedDestinationRoots` config. Default: the workspace. */
+  allowedDestinationRoots?: string[]
+  /** Mirrors the plugin's `approvalUnavailable` config. Default: `deny`. */
+  approvalUnavailable?: 'deny' | 'agent'
   /** Environment to read DSH_HOME from. */
   env?: NodeJS.ProcessEnv
   /** Skip the in-process plugin mount (used by tests that already cover it). */
@@ -96,7 +102,27 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   if (writable.ok) add('ok', `stateRoot ${stateRoot} is writable${existsSync(stateRoot) ? '' : ' (will be created on first use)'}`)
   else add('fail', `stateRoot ${stateRoot} is not writable`, writable.error)
 
+  // File organisation may read/write outside the workspace only through these
+  // profile-owned allowlists. Code-to-Spec always stays inside workspaceRoot.
+  for (const [role, roots] of [['source', options.allowedSourceRoots], ['destination', options.allowedDestinationRoots]] as const) {
+    const list = roots && roots.length > 0 ? roots.map(root => resolve(workspaceRoot, root)) : [workspaceRoot]
+    const external = list.filter(root => !isInside(workspaceRoot, root))
+    add(external.length > 0 ? 'warn' : 'ok', `allowed${role === 'source' ? 'Source' : 'Destination'}Roots ${list.join(', ')}`,
+      external.length > 0 ? `External ${role} folders are authorised for batch file organisation only. Confirm each one is intended: ${external.join(', ')}` : undefined)
+  }
+
+  const unavailable = options.approvalUnavailable ?? 'deny'
+  add(unavailable === 'agent' ? 'warn' : 'ok', `approvalUnavailable ${unavailable}`,
+    unavailable === 'agent'
+      ? 'A host approval outcome of "unavailable" (for example approval policy "never") will fall back to the agent\'s own conversational approval. This is not proof of human approval; switch to "deny" to keep writes fail-closed.'
+      : 'When the host cannot ask (approval policy "never", no answerer), batch writes are denied. Set approvalUnavailable: agent to rely on the agent\'s conversational approval instead.')
+
   return { ok: checks.every(check => check.status !== 'fail'), checks }
+}
+
+function isInside(root: string, target: string): boolean {
+  const relativePath = relative(root, target)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
 export function renderDoctorReport(report: DoctorReport): string {

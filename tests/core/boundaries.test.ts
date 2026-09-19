@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createPlan, createSpecBatch, defaultRecipe } from '../../src/core/index.js'
+import { assertNoLinkAncestor, assertNoLinkAncestorSync, createPlan, createSpecBatch, defaultRecipe } from '../../src/core/index.js'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -21,6 +21,17 @@ describe('output folders must be separate from the source', () => {
     const source = join(root, 'repo'); await mkdir(source)
     for (let index = 0; index < 4; index++) await writeFile(join(source, `m${index}.ts`), `export const m${index} = ${index}\n`, 'utf8')
     await expect(createSpecBatch({ sourceRoot: source, outputRoot: join(source, 'docs') })).rejects.toThrow('outside the source folder')
+  })
+
+  it('preserves Windows extended roots while checking junction ancestors', async () => {
+    if (process.platform !== 'win32') return
+    const root = await mkdtemp(join(tmpdir(), 'dsh-ditto-extended-')); roots.push(root)
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-ditto-extended-outside-')); roots.push(outside)
+    const link = join(root, 'linked')
+    await symlink(outside, link, 'junction')
+    const extended = `\\\\?\\${join(link, 'nested')}`
+    await expect(assertNoLinkAncestor(extended)).rejects.toThrow('symlink or junction')
+    expect(() => assertNoLinkAncestorSync(extended)).toThrow('symlink or junction')
   })
 })
 

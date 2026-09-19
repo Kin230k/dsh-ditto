@@ -66,7 +66,7 @@ try {
   if (!/16\/16 written · 0 failed · 0 source files modified/.test(demo)) throw new Error(`installed CLI demo did not complete:\n${demo}`)
   console.log('Installed CLI ran the headless demo: 16/16 written, 0 source files modified.')
   const doctor = spawnSync(cli, ['doctor', '--workspace-root', project], { cwd: project, encoding: 'utf8', shell, env: { ...process.env, DSH_HOME: join(project, 'dsh-home') } })
-  if (!/14 of 14 tools registered/.test(doctor.stdout)) throw new Error(`installed doctor did not mount the plugin:\n${doctor.stdout}\n${doctor.stderr}`)
+  if (doctor.status !== 0 || !/(\d+) of \1 tools registered/.test(doctor.stdout)) throw new Error(`installed doctor did not mount the plugin:\n${doctor.stdout}\n${doctor.stderr}`)
   console.log('Installed doctor mounted the plugin from the tarball copy.')
   console.log('Tarball smoke passed.')
 } finally {

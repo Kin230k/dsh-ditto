@@ -1,0 +1,36 @@
+{
+  "version": "m0",
+  "id": "22222222-2222-4222-8222-222222222222",
+  "revision": 1,
+  "digest": "fb1db1a3c71713aadbcacd305e4729a2986c4e31845c8c8da7cd9668b30a894a",
+  "createdAt": "2025-01-02T03:04:05.000Z",
+  "sourceRoot": "/legacy/source",
+  "destinationRoot": "/legacy/output",
+  "recipe": {
+    "version": 1,
+    "id": "11111111-1111-4111-8111-111111111111",
+    "name": "Legacy rule",
+    "createdAt": "2025-01-02T03:04:05.000Z",
+    "pattern": "{stem}",
+    "classification": { "kind": "folder-prefix" }
+  },
+  "items": [
+    {
+      "id": "0123456789abcdef",
+      "source": "/legacy/source/one.txt",
+      "relativePath": "one.txt",
+      "destination": "text/one.txt",
+      "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "classification": "text",
+      "status": "ready"
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "ready": 1,
+    "applying": 0,
+    "applied": 0,
+    "rejected": 0,
+    "failed": 0
+  }
+}

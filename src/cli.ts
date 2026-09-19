@@ -82,7 +82,7 @@ async function browserFilesDemo(runRoot: string): Promise<void> {
     ['work-log.json', '{"demo":true,"note":"synthetic fixture"}\n'], ['interview-summary.md', '# Interview summary\n\nUser needs.\n'],
     ['todo.txt', 'Confirm the schedule\nSend the files\n'], ['catalog.csv', 'code,name\nA-01,Demo item\n'],
     ['research-memo.md', '# Research memo\n\nLocal testing only.\n'], ['contacts.csv', 'name,phone\nA. Wang,00000000\n'],
-    ['release-notes.txt', 'Version 0.1.0 synthetic demo\n'], ['readme.md', '# Read me\n\nThese files were created by the demo command.\n'],
+    ['release-notes.txt', `Version ${dittoVersion()} synthetic demo\n`], ['readme.md', '# Read me\n\nThese files were created by the demo command.\n'],
   ]
   await Promise.all(fixtures.map(async ([relativePath, contents]) => { const path = join(sourceRoot, ...relativePath.split('/')); await mkdir(dirname(path), { recursive: true }); await writeFile(path, contents, 'utf8') }))
   const plan = await createPlan({ sourceRoot, destinationRoot, recipe: defaultRecipe('Demo: group by type'), excludedRoots: [stateRoot] })

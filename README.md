@@ -16,7 +16,8 @@ AI is great at doing one file. Ditto is for doing the same thing to 30 files wit
 You describe the batch job the way you always would. Ditto picks a few representative samples, lets you review and edit them until they look right, then applies the same standard to everything else — after showing you the full preview and asking for approval. Nothing is written until you say so.
 
 ```text
-Discover → Review 3 samples → Approve → Preview everything → Apply
+Code → Spec: discover → review 3 samples → approve → preview everything → apply
+Files:       preview every proposed copy and deliverable → revise → approve → apply
 ```
 
 ![dsh-ditto demo: discover 16 modules, review 3 samples, approve, preview everything, apply 16/16 with 0 source files modified](https://raw.githubusercontent.com/darrien1998/dsh-ditto/main/docs/assets/demo.svg)
@@ -40,14 +41,17 @@ dsh plugin --profile web add dsh-ditto
 The doctor prints plain-language checks:
 
 ```text
-✓ Ditto 0.1.0
+✓ Ditto 0.2.0
 ✓ Node.js 22.23.1
 ✓ dsh 0.1.5-rc.1 detected
 ✓ pnpm 11.22.0 detected (used by "dsh plugin")
 ✓ dsh-ditto is installed in profile "web" and listed in its bundles
-✓ 14 of 14 tools registered
+✓ 17 of 17 tools registered
 ✓ skill "ditto" registered
 ✓ stateRoot /your/project/.dsh-ditto is writable
+✓ allowedSourceRoots /your/project
+✓ allowedDestinationRoots /your/project
+✓ approvalUnavailable deny
 ```
 
 Requirements: Node.js 22 or later, DSH 0.1.5-rc.1 or later (see [Compatibility](#compatibility)). If the host packages are not resolvable yet, boot the profile once (`dsh web`) so DSH links them, then run the doctor again.
@@ -97,13 +101,19 @@ A written spec looks like this:
 - ev_670d8499c08cf407cc283778: `src/routes/webhooks.ts:1-13`
 ```
 
-## Example: File organisation
+## Example: File organisation and delivery
 
-The same review-first loop works for organising copies of files under one rule:
+The file workflow previews every proposed copy and deliverable before it writes anything:
 
-> Organise everything in `inbox/` into `sorted/` by type, using `2026-{stem}` names. Show me the plan first.
+> The PDFs in `C:\Users\me\Desktop\ftp-backup` are named `CODE_description.pdf`. Copy them to `D:\shared\PRO\PRO_FILES\CODE\CODE.pdf`, show every exception, and include a CSV mapping, SHA-256 list, SQL Server INSERT file, and ZIP.
 
-Ditto previews every proposed destination, lets you fix individual names, and only then creates **copies** in the new folder. Originals are never moved or modified; existing files are never overwritten; a saved recipe can be reused on the next batch.
+A profile owner first authorises those external source and destination roots. Relative tool paths never use that authority: they remain anchored to `workspaceRoot`, and Code → Spec remains workspace-only.
+
+Recipe v2 can match an anchored RE2 expression such as `^(?<code>[^_]+)_.*\.pdf$`, substitute `{match.code}` into safe nested destinations, and keep non-matches, unsafe captures, invalid names, and collisions as visible per-item exceptions. `ditto_revise_rule` changes the rule once and regenerates the whole plan; `ditto_revise` remains for deliberate one-off corrections.
+
+Before approval, `ditto_manifest` can export the complete mapping as CSV, JSON, or Markdown, and `ditto_artifact_review` exposes the exact reviewed bytes of each sidecar. Supported sidecars are manifests, checksums, and safe SQL `INSERT ... VALUES` text with validated identifiers and escaped literals. Ditto **never connects to a database or executes SQL**. An optional deterministic, streamed store-only ZIP is built only from the reviewed output allowlist, never by walking the destination folder. Classic-ZIP limits are enforced explicitly (at most 65,535 entries and less than 4 GiB); archive crash recovery adopts only the exact hash covered by a durable write intent.
+
+Apply creates **copies** and reviewed deliverables in the new folder. Originals are never moved or modified; existing files are never overwritten; a saved declarative recipe can be reused on the next batch.
 
 ## How it works
 
@@ -120,7 +130,7 @@ Preview → Human approval → Apply
 ```
 
 - **The agent does the thinking; Ditto does the bookkeeping.** Ditto never calls a model itself and never stores model API keys. It hands the DSH agent bounded, line-numbered evidence and accepts only structured drafts whose every claim cites that evidence.
-- **The batch is durable.** Every plan and batch is saved with a revision and a digest. Editing a sample or the instructions changes the digest, clears the approval, and locks the remaining modules until you approve again. An interrupted apply resumes without redoing or overwriting completed items.
+- **The batch is durable.** Every plan and batch is saved with a revision and a digest. Editing a sample, instructions, naming rule, sidecar, or archive changes the reviewed identity. An interrupted copy records durable intent and may adopt only the exact reviewed hash on resume; completed items are never redone or overwritten.
 - **The skill is the routing layer, not the product.** [`skills/ditto/SKILL.md`](skills/ditto/SKILL.md) is a plain file you can read; the plugin registers exactly that file. The full tool reference is generated from the live schemas in [`docs/TOOLS.md`](docs/TOOLS.md).
 
 ## Why Ditto
@@ -145,12 +155,14 @@ Every guarantee below is enforced by code and covered by an automated test; the 
 
 - Preview performs zero writes to sources or outputs; only local review metadata is saved
 - Source files are read as text and never executed, imported, modified, moved, or deleted
-- Outputs go to a separate folder; an existing destination is never overwritten
-- Every apply re-checks the source hashes and the plan revision and digest; a changed source or a stale review is rejected before any write
-- Path traversal, symlink and junction escapes, duplicate and case-insensitive destination collisions are rejected
-- A completed item is never re-run or overwritten on resume; a duplicate apply is a no-op
+- Outputs go to a separate folder; an existing destination, sidecar, or archive is never overwritten
+- Every apply re-checks source hashes and the exact plan revision/digest; a changed source or stale review is rejected
+- Path traversal, symlink/junction escapes, duplicate, case-insensitive, ancestor/descendant, and artifact collisions are rejected
+- File organisation can use external roots only when the profile owner authorises each source/destination role; Code → Spec and state stay inside `workspaceRoot`
+- Sidecar SQL is deterministic text with validated identifiers and escaped literals; Ditto never connects to a database or executes it
+- A completed item is never re-run or overwritten on resume; only a previously recorded intent may adopt an exact-hash crash remnant
 - Claims the source cannot support become **Needs confirmation** questions, not facts
-- With a DSH approval service present, the host asks the user before every batch write (`approval: host`)
+- With `approval: host`, only `allowed-once` proceeds. Rejection and cancellation always deny; a missing approval service/agent identity or host `unavailable` denies by default. Conversational fallback requires the profile owner to set `approvalUnavailable: agent` and is not proof of human approval
 - No telemetry, no network access beyond DSH itself, no API key storage
 
 ## Plugin architecture
@@ -161,18 +173,19 @@ Ditto is a DSH plugin, not a Markdown skill. The package contains:
 |---|---|
 | Cordis service | `dsh-ditto/dsh` — one service that registers the skill and the tools on the host's public `skills` and `tools` services; unloading the bundle removes everything |
 | Skill | `skills/ditto/SKILL.md` — the routing layer the agent reads (model- and user-invocable) |
-| Native tools | 14 typed tools: 9 for Code → Spec, 5 for file organisation ([reference](docs/TOOLS.md)) |
-| Deterministic core | discovery, evidence extraction, citation validation, rendering, hashing, revision/digest gates, durable state |
+| Native tools | 17 typed tools: 9 for Code → Spec, 8 for file organisation ([reference](docs/TOOLS.md)) |
+| Deterministic core | discovery, RE2 matching, safe path rendering, evidence/citation validation, sidecar and ZIP rendering, hashing, revision/digest gates, durable state |
 | Local review page | an optional loopback-only browser page used by the demo and `dsh-ditto serve` |
 
-Ditto depends only on public DSH APIs (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-skill`) and patches nothing in DSH. Configuration (`workspaceRoot`, `stateRoot`, `approval`, paging limits) is set from the profile's `cordis.patch.yml`; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Ditto depends only on public DSH APIs (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-skill`) and patches nothing in DSH. Recipe v2 uses `re2-wasm` for linear-time matching. Configuration (`workspaceRoot`, `stateRoot`, file-only external allowlists, approval policy, paging limits) is set from the profile's `cordis.patch.yml`; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Compatibility
 
 | Ditto | DSH | Node.js | Status |
 |---|---|---|---|
-| 0.1.0 | 0.1.5-rc.1, 0.1.5-rc.2 | 22, 24 | supported — full CI gate, real `dsh plugin` install smoke |
-| 0.1.0 | 0.1.6-alpha.1 | 22, 24 | canary — tests pass, non-blocking CI job |
+| 0.2.0 | 0.1.5-rc.1, 0.1.5-rc.2 | 22, 24 | release candidate — build, test, component, tarball, and real isolated-profile install/boot/doctor gates all pass |
+| 0.2.0 | 0.1.6-alpha.1 | 22, 24 | canary — non-blocking CI |
+| 0.1.0 | 0.1.5-rc.1, 0.1.5-rc.2 | 22, 24 | supported historical release |
 
 DSH is moving fast; see [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) for what exactly is tested and how to report a breaking change.
 

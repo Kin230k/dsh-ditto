@@ -6,16 +6,17 @@ DeepSeek Harness is pre-1.0 and moves quickly. Ditto declares exactly which vers
 
 | Ditto | DSH launcher / components | Node.js | OS | Status | Evidence |
 |---|---|---|---|---|---|
-| 0.1.0 | `@deepseek-ai/dsh` 0.1.5-rc.1 with `dsh-tools` / `dsh-skill` 0.1.5-rc.1 | 22, 24 | Ubuntu, Windows | **supported** | `npm test`, `npm run smoke:dsh`, `npm run smoke:tarball` in CI |
-| 0.1.0 | `@deepseek-ai/dsh` 0.1.5-rc.1 launcher, whose installed closure resolves `dsh-tools` / `dsh-skill` 0.1.5-rc.2 | 22 | Windows (local), Ubuntu (CI) | **supported** | `npm run smoke:profile`: real `dsh plugin add`, `--dump-config`, profile boot, doctor inside the profile |
-| 0.1.0 | `dsh-tools` / `dsh-skill` 0.1.5-rc.2 (`next`) | 22 | — | **supported** | full test suite passes against rc.2 components |
-| 0.1.0 | `dsh-tools` / `dsh-skill` 0.1.6-alpha.1 (`alpha`) | 22 | — | **canary** | full test suite passes (2026-09-17); non-blocking CI job |
+| 0.2.0 | `@deepseek-ai/dsh` 0.1.5-rc.1 with `dsh-tools` / `dsh-skill` 0.1.5-rc.1 | 22, 24 | Ubuntu, Windows | **release candidate** | build, unit/safety suite, component-host smoke, generated-doc check, packed-tarball smoke, and a real isolated-`DSH_HOME` profile install, boot, and in-profile doctor run |
+| 0.2.0 | `@deepseek-ai/dsh` launcher 0.1.5-rc.2, whose installed closure resolves rc.2 components | 24 | Windows | **verified locally** | `npm run smoke:profile` passed end to end: `dsh plugin add` from the packed tarball, profile boot with Ditto in the tree, and in-profile doctor reporting 17 of 17 tools |
+| 0.2.0 | `dsh-tools` / `dsh-skill` `next` / `alpha` | 22, 24 | CI matrix | **canary** | non-blocking compatibility jobs |
+| 0.1.0 | `@deepseek-ai/dsh` 0.1.5-rc.1 / rc.2 | 22, 24 | Ubuntu, Windows | **supported historical release** | 0.1 release gates and real profile smoke |
 
 "Supported" means the complete gate passes; "canary" means we run against it so an upstream breaking change is noticed early, but it is not a promise.
 
 ## What Ditto depends on
 
-- **Runtime peer packages:** `@deepseek-ai/cordis ^4.0.2`, `@deepseek-ai/dsh-tools >=0.1.5-rc.1 <0.2.0`. They are peers, not dependencies, so the plugin uses the host's own module instances (see [ARCHITECTURE.md](ARCHITECTURE.md#how-dsh-loads-ditto)).
+- **Runtime peer packages:** `@deepseek-ai/cordis ^4.0.2`, `@deepseek-ai/dsh-tools >=0.1.5-rc.1 <0.2.0`. They are peers, so the plugin uses the host's own module instances (see [ARCHITECTURE.md](ARCHITECTURE.md#how-dsh-loads-ditto)).
+- **Runtime dependency:** `re2-wasm`, used for linear-time Recipe v2 matching. ZIP and SQL sidecars use Node APIs and never shell out.
 - **Host services:** `tools` and `skills` are required at mount time; `approval` is optional and read at call time.
 - **Public APIs only:** `defineTool` and `ToolRuntime.register` from `dsh-tools`, `SkillRegistry.register` from `dsh-skill`, `Service`/`Context` from `cordis`, and the documented `ApprovalService.request` from `dsh-user-approval`. Ditto patches nothing in DSH.
 - **Node.js:** 22 or later (`engines.node >=22`). CI runs 22 and 24.

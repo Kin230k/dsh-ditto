@@ -1,6 +1,4 @@
-import { readFile, mkdir, rm, writeFile, rename } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { atomicWriteStateText, readStateText } from '../core/state-paths.js'
 import { renderSpecDraft, renderedHash, validateReviewedMarkdown, validateSpecDraft } from './draft.js'
 import { hash, normalizeInstructions, summarizeSpecItems, withSpecDigest } from './prepare.js'
 import type { GenerateSpecOptions, SpecBatch, SpecBatchEdit, SpecDraft, SpecGenerationResponse, SpecGenerator, SpecModule } from './types.js'
@@ -115,6 +113,20 @@ async function generateOne(batch: SpecBatch, item: SpecModule, generator: SpecGe
     return { ...item, draft, renderedMarkdown: markdown, renderedHash: renderedHash(markdown), status: batch.samples.includes(item.id) ? 'sample-ready' : 'ready', reason: undefined, generation: { generatorId: generator.id, sourceHash: item.sourceHash, recipeDigest: recipeDigest(batch), cached: Boolean(cached), ...(response.metadata ? { metadata: response.metadata } : {}) } }
   } catch (error: unknown) { return { ...item, status: 'needs-review', reason: (error instanceof Error ? error.message : 'Specification generation failed').slice(0, 300) } }
 }
-function cacheFile(stateRoot: string, item: SpecModule, batch: SpecBatch, generatorId: string): string { return join(resolve(stateRoot), 'spec-cache', `${hash(`${item.sourceHash}:${recipeDigest(batch)}:${generatorId}`)}.json`) }
-async function loadCache(stateRoot: string, item: SpecModule, batch: SpecBatch, generatorId: string): Promise<SpecGenerationResponse | undefined> { try { const data: unknown = JSON.parse(await readFile(cacheFile(stateRoot, item, batch, generatorId), 'utf8')); if (!data || typeof data !== 'object') return undefined; const response = data as SpecGenerationResponse; validateSpecDraft(response.draft, item); validateMetadata(response.metadata); return response } catch { return undefined } }
-async function saveCache(stateRoot: string, item: SpecModule, batch: SpecBatch, generatorId: string, response: SpecGenerationResponse): Promise<void> { const file = cacheFile(stateRoot, item, batch, generatorId); await mkdir(dirname(file), { recursive: true }); const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`; await writeFile(tmp, `${JSON.stringify(response)}\n`, { encoding: 'utf8', flag: 'wx' }); await rename(tmp, file).catch(async error => { await rm(tmp, { force: true }); throw error }) }
+function cacheLeaf(item: SpecModule, batch: SpecBatch, generatorId: string): string { return `${hash(`${item.sourceHash}:${recipeDigest(batch)}:${generatorId}`)}.json` }
+async function loadCache(stateRoot: string, item: SpecModule, batch: SpecBatch, generatorId: string): Promise<SpecGenerationResponse | undefined> {
+  try {
+    const data: unknown = JSON.parse(await readStateText(stateRoot, 'spec-cache', cacheLeaf(item, batch, generatorId)))
+    if (!data || typeof data !== 'object') return undefined
+    const response = data as SpecGenerationResponse
+    validateSpecDraft(response.draft, item)
+    validateMetadata(response.metadata)
+    return response
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError || (error instanceof Error && /draft|metadata|evidence|module/i.test(error.message))) return undefined
+    throw error
+  }
+}
+async function saveCache(stateRoot: string, item: SpecModule, batch: SpecBatch, generatorId: string, response: SpecGenerationResponse): Promise<void> {
+  await atomicWriteStateText(stateRoot, 'spec-cache', cacheLeaf(item, batch, generatorId), `${JSON.stringify(response)}\n`)
+}

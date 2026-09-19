@@ -41,7 +41,7 @@ describe('SKILL.md is the single source of truth for the Ditto skill', () => {
 describe('tool catalog', () => {
   it('covers every registered tool exactly once with the facts docs/TOOLS.md needs', () => {
     expect(new Set(TOOL_NAMES).size).toBe(TOOL_NAMES.length)
-    expect(TOOL_NAMES).toHaveLength(14)
+    expect(TOOL_NAMES).toHaveLength(17)
     for (const fact of TOOL_CATALOG) {
       expect(fact.name).toMatch(/^ditto(_spec)?_[a-z_]+$/)
       for (const field of ['stage', 'purpose', 'writes', 'approval', 'failures'] as const) expect(fact[field].length).toBeGreaterThan(3)
@@ -72,16 +72,28 @@ describe('human approval gate', () => {
     expect(asked).toHaveLength(1)
   })
 
-  it.each(['rejected', 'cancelled', 'unavailable'] as const)('fails closed when the host answers %s', async outcome => {
+  it.each(['rejected', 'cancelled'] as const)('fails closed when the host answers %s', async outcome => {
     const ctx = stubHost(async () => outcome)
     await expect(requireHumanApproval({ ctx, mode: 'host', exec, toolName: 'ditto_spec_apply', reason: 'test' })).rejects.toThrow(`did not approve ditto_spec_apply (${outcome})`)
   })
 
-  it('falls back to the agent-asserted approval when no host service or agent exists, or when configured', async () => {
+  it('fails closed on unavailable by default and only falls back when the profile owner opts in', async () => {
+    const ctx = stubHost(async () => 'unavailable')
+    await expect(requireHumanApproval({ ctx, mode: 'host', exec, toolName: 'ditto_apply', reason: 'test' })).rejects.toThrow('could not ask for approval')
+    await expect(requireHumanApproval({ ctx, mode: 'host', unavailable: 'deny', exec, toolName: 'ditto_apply', reason: 'test' })).rejects.toThrow('could not ask for approval')
+    await expect(requireHumanApproval({ ctx, mode: 'host', unavailable: 'agent', exec, toolName: 'ditto_apply', reason: 'test' })).resolves.toBe('agent')
+    // A rejection is never converted into an agent fallback.
+    const rejecting = stubHost(async () => 'rejected')
+    await expect(requireHumanApproval({ ctx: rejecting, mode: 'host', unavailable: 'agent', exec, toolName: 'ditto_apply', reason: 'test' })).rejects.toThrow('did not approve')
+  })
+
+  it('fails closed when the host service or agent identity is absent unless the profile opts in', async () => {
     const bare = new Context()
-    await expect(requireHumanApproval({ ctx: bare, mode: 'host', exec, toolName: 'ditto_apply', reason: 'test' })).resolves.toBe('agent')
+    await expect(requireHumanApproval({ ctx: bare, mode: 'host', exec, toolName: 'ditto_apply', reason: 'test' })).rejects.toThrow('could not ask for approval')
+    await expect(requireHumanApproval({ ctx: bare, mode: 'host', unavailable: 'agent', exec, toolName: 'ditto_apply', reason: 'test' })).resolves.toBe('agent')
     const hostWithoutAgent = stubHost(async () => { throw new Error('must not be called') })
-    await expect(requireHumanApproval({ ctx: hostWithoutAgent, mode: 'host', exec: { ...exec, agent: undefined }, toolName: 'ditto_apply', reason: 'test' })).resolves.toBe('agent')
+    await expect(requireHumanApproval({ ctx: hostWithoutAgent, mode: 'host', exec: { ...exec, agent: undefined }, toolName: 'ditto_apply', reason: 'test' })).rejects.toThrow('could not ask for approval')
+    await expect(requireHumanApproval({ ctx: hostWithoutAgent, mode: 'host', unavailable: 'agent', exec: { ...exec, agent: undefined }, toolName: 'ditto_apply', reason: 'test' })).resolves.toBe('agent')
     await expect(requireHumanApproval({ ctx: hostWithoutAgent, mode: 'agent', exec, toolName: 'ditto_apply', reason: 'test' })).resolves.toBe('agent')
     await bare.fiber.dispose()
   })

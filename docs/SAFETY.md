@@ -1,48 +1,50 @@
 # Safety by design
 
-**Your source stays untouched. Nothing is batch-written before approval. Ditto does not execute your source code. Ditto does not store your model API keys.**
+**Your source stays untouched. Nothing is batch-written before approval. Ditto does not execute source code or SQL and does not store model API keys.**
 
-These are not policy statements; each one is enforced in code and covered by a test that runs in CI on every change (`npm test`, plus the real-host smokes). If you find a way around any of them, please report it — see [SECURITY.md](../SECURITY.md).
+These guarantees are enforced in code and covered by `npm test` plus the real-host smokes. Please report any bypass through [SECURITY.md](../SECURITY.md).
 
 ## Guarantees and where they live
 
 | Guarantee | Enforced in | Covered by |
 |---|---|---|
-| Preview performs zero writes to sources or outputs; only local review metadata under `stateRoot` is saved | `createPlan`, `createSpecBatch`, `generateSpecBatch`, `submitSpecDraft` never touch the output folder | `tests/core/m0.test.ts` "previews without writes…"; `tests/dsh/native-tools.spec.ts` (output is ENOENT until apply) |
-| Source files are read as text and never executed, imported, modified, moved, or deleted | `prepareModule` uses `readFile` only; apply paths copy or write elsewhere | `tests/spec/m1.test.ts` (source bytes identical after apply); `tests/cli/demo-and-doctor.test.ts` (16 hashes re-verified) |
-| Outputs go to a separate folder; output inside the source folder is rejected | `createPlan`, `createSpecBatch` | `tests/core/boundaries.test.ts` |
-| An existing destination is never overwritten | `applyItem`/`applyOne` check existence, write via temp + `COPYFILE_EXCL` / `wx`; spec apply preflight rejects existing outputs before any write | `tests/core/m0.test.ts` "…non-overwrite failure"; `tests/spec/m1.test.ts` resume test |
-| Source hash re-validated at apply; a changed source is rejected before any write | `applyItem`, `applyOne`, spec `preflight` | `tests/core/m0.test.ts` "rejects stale source bytes…"; `tests/spec/m1.test.ts` "…rejects stale sources at apply" |
-| Apply requires the exact reviewed plan id, revision, and digest; persisted state must agree | `applyPlan`, `applySpecBatch`, `assertSpecIdentity` | `tests/core/m0.test.ts` "…rejects stale apply identities"; `tests/dsh/native-tools.spec.ts` (stale revision rejected) |
-| Digest covers the reviewed identity, not apply outcomes, so resume keeps identity | `withDigest`, `withSpecDigest` | `tests/spec/m1.test.ts` resume test |
-| Path traversal, absolute paths, Windows device names, trailing dots/spaces rejected | `safeRelative`, `validateDestinationExtension` | `tests/core/m0.test.ts` "…unsafe or extension-changing edits" |
-| Symlinks and junctions: discovery refuses them; an output root given through a link is canonicalised to its real location before the workspace check; a link that appears between preview and apply is refused before anything is written | `canonicalPath`, `assertNoLinkAncestor` (`src/core/paths.ts`), `collectFiles`, `collectSourceFiles`, `prepareDestinationRoot`, `prepareOutputRoot`, `safeOutput` | `tests/core/m0.test.ts` "canonicalises an output root given through a junction…"; `tests/dsh/native-tools.spec.ts` (junction pointing outside the workspace rejected); discovery counts `symlink` exclusions |
-| Boundary checks compare canonical paths (native realpath, Windows 8.3 short names expanded), so a legitimate folder is never mistaken for a link and a link is never mistaken for a folder | `canonicalPath`, `canonicalPathSync`, `resolveConfig`, `checkedRoots` | CI runs the suite on Windows runners whose temp path is an 8.3 short name |
-| Cross-drive paths are never "inside" a root (Windows) | `within` | `tests/core/m0.test.ts` "treats cross-drive and parent paths as outside a root" |
-| Duplicate and case-insensitive destination collisions rejected | `assertNoCollisions`, `assertOutputCollisions` | `tests/core/m0.test.ts` "rejects case-insensitive collisions…" |
-| Every factual claim cites real evidence; forged ids rejected before preview | `validateSpecDraft`, `validateReviewedMarkdown` | `tests/spec/m1.test.ts` "rejects hallucinated evidence…"; `tests/dsh/native-tools.spec.ts` (forged `ev_` rejected by the tool) |
-| Unsupported claims become "Needs confirmation" questions, never facts | `confirmations` must be questions; renderer section | `tests/spec/m1.test.ts` "renders open questions…" |
-| Editing samples or instructions invalidates approval and held-out drafts; remaining modules lock until re-approval | `reviseSpecBatch`, `hasCurrentSampleApproval`, tool gates | `tests/spec/m1.test.ts` "requires explicit approval…"; `tests/dsh/native-tools.spec.ts` (remaining locked) |
-| A forged or stale approval record cannot unlock the batch | `assertSpecBatch`, `hasCurrentSampleApproval` | `tests/spec/m1.test.ts` "…cannot unlock held-out modules with stale approvals" |
-| A written batch cannot be recalibrated or re-approved | `reviseSpecBatch`, `approveSpecSamples` | `tests/spec/m1.test.ts` "…locks a written batch" |
-| Duplicate apply and resume never redo or overwrite completed items | `assertCompletedItem`, `assertCompleted`, per-item state saved after each write, in-process locks | `tests/core/m0.test.ts` resume test; `tests/spec/m1.test.ts` "resumes an interrupted apply…" |
-| Tool arguments cannot leave the configured workspace | `checkedRoots`, `checkedPersisted*Roots` | `tests/dsh/native-tools.spec.ts` (preview outside the workspace rejected) |
-| Host approval gate: with `approval: host` and an approval service present, nothing is written unless the host grants `allowed-once` | `requireHumanApproval` | `tests/dsh/plugin-contract.test.ts` "human approval gate" |
-| Host guards and `tools/pre-execute` denials prevent writes | DSH ToolRuntime pipeline | `tests/dsh/native-tools.spec.ts` (guard and pre-execute denial leave no files) |
-| No model calls, no API keys, no network beyond DSH and the loopback review page | no `dsh-llm` import; `createServer` bound to `127.0.0.1`; `fetch` only in browser-side review scripts | `tests/core/boundaries.test.ts` (static checks) |
-| Bounded inputs everywhere | draft text ≤ 2,000 chars, lists ≤ 80, sample Markdown ≤ 12,000, instructions ≤ 8,000, batch 4–50 modules, evidence paging, request bodies ≤ 16 KB | validation in `draft.ts`, `prepare.ts`, `server.ts`; exercised by the suites above |
+| Preview writes no source/output bytes; it saves review metadata only under `stateRoot` | `createPlan`, `createSpecBatch`, service preview methods | `tests/core/m0.test.ts`; `tests/dsh/native-tools.spec.ts` |
+| Sources are read-only: never executed, imported, modified, moved, deleted, or used as SQL | spec preparation reads text; file apply copies bytes; SQL renderer emits text only | `tests/spec/m1.test.ts`; `tests/dsh/v02-roots-rules.spec.ts` 174-file source comparison |
+| Source and output trees must be separate in both directions; neither may violate the state boundary | `createPlan`, `createSpecBatch`, `checkedFileRoots`, `checkedPersistedPlanRoots` | `tests/core/boundaries.test.ts`; `tests/dsh/v02-roots-rules.spec.ts` |
+| File organisation may use only profile-owned role allowlists; relative paths, state, and Code → Spec remain workspace-bound | `resolveRoleRoot`, `checkedFileRoots`, `checkedRoots`, persisted-root revalidation | `tests/dsh/v02-roots-rules.spec.ts` external-root, role, revoked-root, and spec-isolation cases |
+| Existing destinations, sidecars, and archives are never overwritten or silently adopted | `COPYFILE_EXCL`/`wx`, durable intent checks, exact-hash adoption | `tests/core/m0.test.ts` non-overwrite, interrupted-copy/sidecar/archive, unrelated archive cases |
+| Source and output hashes are rechecked before, during, and after copy | `applyItem`, spec `preflight`, archive input inspection | `tests/core/m0.test.ts`; `tests/spec/m1.test.ts` |
+| Apply and review require the exact persisted id/revision/digest; stale identities are rejected **before** approval prompts | `reviewApply`, `reviewSpecApply`, `applyPlan`, `applySpecBatch` | `tests/dsh/native-tools.spec.ts`; `tests/dsh/v02-roots-rules.spec.ts` stale artifact review |
+| Persisted summaries are not trusted; summary/diagnostics are derived from item/artifact state | `withDigest`, `summarize`, `diagnose`, storage load | `tests/core/m0.test.ts`; plugin approval tests |
+| Path traversal, absolute paths, drive/UNC escapes, Windows device names, trailing dots/spaces, and extension changes are rejected | `safeRelative`, root-aware `assertNoLinkAncestor`, `validateDestinationExtension` | `tests/core/m0.test.ts`; Windows CI; `tests/dsh/v02-roots-rules.spec.ts` |
+| State root, categories, locks, temporary files, and leaves cannot be redirected through links/junctions | `stateCategoryPath`, `stateLeafPath`, `atomicWriteStateText`, `withStateLock` | `tests/dsh/v02-roots-rules.spec.ts` durable-state link cases; `tests/core/m0.test.ts` lock serialization |
+| RE2 matching is linear-time; lookarounds, backreferences, alternation, nested quantifiers, unsafe captures, and oversized inputs fail closed | `validateMatch`, `re2-wasm`, capture/template validation | `tests/core/m0.test.ts`; `tests/dsh/v02-roots-rules.spec.ts` |
+| Exact, case-insensitive, and ancestor/descendant collisions across files, sidecars, and archive are rejected | `withCollisionExceptions`, `assertNoArtifactCollisions` | `tests/core/m0.test.ts`; `tests/dsh/v02-roots-rules.spec.ts` |
+| Exceptions remain visible in diagnostics and the complete manifest and are never written; valid items still apply | proposal disposition in the digest; manifest renderer | `tests/core/m0.test.ts`; 174-file and manifest tests |
+| Sidecar bytes, renderer identity, paths, and hashes are reviewed; apply rerenders and verifies them | `renderArtifacts`, `reviewArtifact`, plan digest | `tests/core/artifacts.test.ts`; `tests/dsh/v02-roots-rules.spec.ts` |
+| SQL sidecars permit validated identifiers and escaped literal templates only; no raw statement templates, comments, commands, connection, or execution | `validateSidecar`, `renderSql` | `tests/core/artifacts.test.ts`; SQL rejection/integration tests |
+| CSV neutralises `=`, `+`, `-`, `@`, tab, and CR formula prefixes; Markdown escapes active table/markup characters | `csvCell`, `markdownCell` | `tests/core/artifacts.test.ts` |
+| ZIP contains exactly reviewed successful outputs, never walks the destination, never includes itself, and is streamed deterministically | `prepareReviewedArchive`, `writeZipFile` | `tests/dsh/v02-roots-rules.spec.ts` exact central-directory checks, including 174 files |
+| Classic ZIP limits are explicit: ≤65,535 entries, each entry/offset/archive below 4 GiB; unsupported Zip64-sized batches fail closed | `inspectZipFile`, `writeZipFile` | ZIP limit checks in the core writer |
+| Crash recovery adopts only an exact copy/sidecar/archive hash backed by a persisted intent; unrelated same-content output still fails | `copyIntent`, artifact `applying`, `archiveState` | `tests/core/m0.test.ts` durable interrupted-output cases |
+| Mutations are serialised across callers and DSH processes sharing one `stateRoot` | in-process queues plus atomic `withStateLock` directories | `tests/core/m0.test.ts` durable state-lock serialization |
+| Every specification fact cites returned evidence; unsupported claims become questions | draft/Markdown validation and deterministic renderer | `tests/spec/m1.test.ts`; `tests/dsh/native-tools.spec.ts` |
+| Editing samples/instructions invalidates approval and held-out drafts; written batches cannot be recalibrated | spec state machine | `tests/spec/m1.test.ts` |
+| With `approval: host`, only `allowed-once` proceeds. `rejected`/`cancelled` always deny; missing service/agent and `unavailable` deny unless the profile explicitly sets `approvalUnavailable: agent` | `requireHumanApproval` | `tests/dsh/plugin-contract.test.ts` |
+| Host guards and `tools/pre-execute` denials prevent writes | DSH ToolRuntime pipeline | `tests/dsh/native-tools.spec.ts` |
+| No model calls, credentials, telemetry, or network beyond DSH and loopback review pages | no model client; loopback bind; static checks | `tests/core/boundaries.test.ts` |
 
 ## What Ditto stores locally
 
-Under `stateRoot` (default `.dsh-ditto` in the workspace): plans, recipes, spec batches (including evidence text and rendered Markdown), and a generation cache of agent drafts keyed by source hash and recipe digest. Nothing else. No credentials, no environment variables, no conversation transcripts. Delete the folder to forget everything.
+Under `stateRoot` (default `.dsh-ditto` inside `workspaceRoot`), Ditto stores plans, recipes, exported review manifests, cross-process lock records, spec batches (including evidence and rendered Markdown), and the deterministic draft cache. It stores no credentials, environment variables, or conversation transcripts. Delete the folder to forget the durable state.
 
-## What Ditto does not protect against
+## Threat-model boundary
 
-- **Semantic correctness.** A citation proves a statement points at real source lines; it does not prove the statement is true. Review the samples and the "Needs confirmation" list.
-- **The host's own permissions.** Ditto's workspace boundary is an additional check; it does not replace DSH's file sandbox or approval policy.
-- **Concurrent processes.** Mutation locks are in-process. Two DSH processes sharing one `stateRoot` are unsupported.
-- **A hostile local user.** State files are plain JSON on disk, validated on load but not encrypted.
+- **Semantic correctness:** a citation points to real source lines; it does not prove the interpretation. Review samples and confirmations.
+- **Host permissions:** Ditto's roots and approval gates add checks; they do not replace the DSH sandbox or OS ACLs.
+- **Hostile privileged local mutation:** Ditto repeatedly rejects links and verifies hashes, but Node does not expose portable handle-relative `openat` operations. An administrator able to replace checked directories between individual filesystem syscalls is outside the guarantee; isolate `workspaceRoot`, authorised external roots, and `stateRoot` with OS permissions.
+- **Confidentiality at rest:** state is validated plain JSON/text, not encrypted.
 
 ## Reporting
 
-Please report anything that looks like a way to write outside the output folder, overwrite a file, bypass approval, or execute source code — see [SECURITY.md](../SECURITY.md).
+Report any way to escape an output root, overwrite a file, bypass approval, execute source/SQL, or adopt an unreviewed deliverable through [SECURITY.md](../SECURITY.md).

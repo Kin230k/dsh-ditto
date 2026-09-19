@@ -54,7 +54,7 @@ describe('Ditto native tools on the published Cordis + ToolRuntime', () => {
     await writeFile(join(source, 'invoice.txt'), 'unchanged source', { encoding: 'utf8' })
 
     const ctx = await host()
-    await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, maxItems: 20, resultItems: 10 })
+    await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, approval: 'agent', maxItems: 20, resultItems: 10 })
 
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(expect.arrayContaining([...TOOL_NAMES]))
 
@@ -124,7 +124,7 @@ describe('Ditto native tools on the published Cordis + ToolRuntime', () => {
     for (let index = 1; index <= 12; index++) await writeFile(join(source, `module-${index}.ts`), `export function module${index}(value: string) { return value }\n`, 'utf8')
 
     const ctx = await host()
-    await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, resultItems: 20, evidenceItems: 4 })
+    await ctx.plugin(DshDitto, { workspaceRoot: root, stateRoot: state, approval: 'agent', resultItems: 20, evidenceItems: 4 })
 
     let batch = (value(await call(ctx, 'ditto_spec_create', { source_root: source, output_root: output, instructions: 'Write in plain English.' })).batch as { id: string; revision: number; digest: string; samples: string[] })
     expect(batch.samples).toHaveLength(3)
