@@ -3,7 +3,7 @@ import { cp, mkdtemp, mkdir, readFile, realpath, rm, symlink, utimes, writeFile 
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { applyPlan, createPlan, defaultRecipe, defaultRecipeV2, loadPlan, loadRecipe, recipeFromPlan, revisePlan, safeRelative, savePlan, stableDigest, validateRecipe, withDigest, within } from '../../src/core/index.js'
+import { applyPlan, canonicalPath, createPlan, defaultRecipe, defaultRecipeV2, loadPlan, loadRecipe, recipeFromPlan, revisePlan, safeRelative, savePlan, stableDigest, validateRecipe, withDigest, within } from '../../src/core/index.js'
 import { startLocalWorkbench } from '../../src/server.js'
 import { reviewArtifact } from '../../src/core/artifacts.js'
 import { buildZip } from '../../src/core/zip.js'
@@ -388,12 +388,17 @@ describe('recipe v2 proposals', () => {
   it('applies a legacy plan whose items carry no disposition field and reports its deliverables', async () => {
     const paths = await fixture({ 'one.txt': 'legacy bytes' })
     const bytes = 'legacy bytes'
+    // A plan written by 0.1 stored canonical roots: createPlan ran realpath over
+    // both the source root and every discovered source file. A Windows temp path
+    // can contain an 8.3 short component, so the fixture must canonicalise too.
+    const sourceRoot = await realpath(paths.source)
+    const source = await realpath(join(paths.source, 'one.txt'))
     const legacy = withDigest({
       version: 'm0', id: '33333333-3333-4333-8333-333333333333', revision: 1, createdAt: '2025-01-02T03:04:05.000Z',
-      sourceRoot: paths.source, destinationRoot: paths.output,
+      sourceRoot, destinationRoot: await canonicalPath(paths.output),
       recipe: { version: 1, id: '11111111-1111-4111-8111-111111111111', name: 'Legacy rule', createdAt: '2025-01-02T03:04:05.000Z', pattern: '{stem}', classification: { kind: 'folder-prefix' } },
       items: [{
-        id: '0123456789abcdef', source: join(paths.source, 'one.txt'), relativePath: 'one.txt',
+        id: '0123456789abcdef', source, relativePath: 'one.txt',
         destination: join('text', 'one.txt'), sourceHash: createHash('sha256').update(bytes).digest('hex'),
         classification: 'text', status: 'ready',
       }],

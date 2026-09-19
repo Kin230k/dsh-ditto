@@ -36,6 +36,23 @@ DITTO_DSH_VERSION=0.1.5-rc.2 npm run smoke:dsh
 git checkout package.json && npm ci          # back to the pinned set
 ```
 
+## Windows 8.3 short names
+
+CI's Windows runners expose `TEMP` through an 8.3 short component (`RUNNER~1`), while a
+developer machine with a short user name usually does not. `realpath` expands such a
+component, so any code that compares a caller-supplied path against its realpath behaves
+differently on the two machines. To reproduce CI locally, point `TEMP`/`TMP` at the short
+form of a directory and run the suite:
+
+```powershell
+$long = Join-Path $env:TEMP 'ditto-shortname-simulation'; New-Item -ItemType Directory $long -Force | Out-Null
+$env:TEMP = $env:TMP = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($long).ShortPath
+npm test
+```
+
+`tests/dsh/v02-roots-rules.spec.ts` also covers this directly: it resolves a state root
+through its short name and skips when the volume does not generate 8.3 names.
+
 ## Conventions
 
 - TypeScript, ESM, `strict`. Runtime dependencies are limited to the DSH peers and `re2-wasm`; ZIP and SQL sidecars must remain deterministic and must never shell out.
